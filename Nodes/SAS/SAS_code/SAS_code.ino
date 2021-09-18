@@ -1,4 +1,14 @@
-//--------------------------SAS CODE--------------------------------------
+/*
+SAS CODE FOR EVAM
+
+Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
+
+Outputs the steering angle
+
+Code is still uder development
+
+!This code is not millis() overflow protected!
+*/
 
 
 #include <SPI.h>
@@ -39,7 +49,7 @@ void setup() {
   #endif
   
   mcp2515.reset();
-  mcp2515.setBitrate(CAN_500KBPS);
+  mcp2515.setBitrate(CAN_500KBPS, MCP_8MHZ);
   mcp2515.setNormalMode();
 
 }

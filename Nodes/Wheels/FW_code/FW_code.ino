@@ -1,9 +1,17 @@
 /*
 FW (Front Wheel) CODE FOR EVAM
 
+Generic Wheel Node Description:
+FUNCTIONS:
+-Read wheel speed from controller and publish to EVAM CAN Bus
+-Read desired throttle value from EVAM CAN Bus and control controller
+-Read other settings for the wheel (eg reverse, ECO/Boost Mode) and control controller
+
 Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
-Connect A0 to the throttle 
-Connect A1 to the brake
+
+
+Code is still under development
+
 */
 #include <SPI.h>
 #include <mcp2515.h>  //arduino-mcp2515 by autowp: https://github.com/autowp/arduino-mcp2515/
@@ -128,7 +136,7 @@ void setup() {
     #endif //#ifdef DEBUG
     
     mcp2515.reset();
-    mcp2515.setBitrate(CAN_500KBPS);
+    mcp2515.setBitrate(CAN_500KBPS, MCP_8MHZ);
     mcp2515.setNormalMode();
     sendStatus(1);  
 }

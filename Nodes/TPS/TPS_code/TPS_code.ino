@@ -1,14 +1,32 @@
 /*
 TPS CODE FOR EVAM
 
+
+FUNCTIONS:
+-Read throttle positions sensors and publish to CAN Bus
+--Possibly average a few readings for stability
+-If 2 TPS are connected, check between both sensors to identify throttle faults
+
+-Read brake pressure sensor(s) and publish [pressure inforamtion to CAN Bus
+-Convert pressure information to equivalent brake pedal position and publish to CANB us
+
+
 Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
 Connect A0 to the throttle 
 Connect A1 to the brake
+
+!This code is not millis() overflow protected!
 */
+
 #include <Ewma.h>
 #include <SPI.h>
 #include <mcp2515.h>  //arduino-mcp2515 by autowp: https://github.com/autowp/arduino-mcp2515/
 #define DEBUG
+//#define DUAL_TPS_SENSOR //for use with dual TPS (for redundancy)
+  #ifdef DUAL_TPS_SENSOR
+  //#define TPS2_REVERSE_VOLTAGE  //TPS 2 voltage decreases as the pedal is pressed more
+  #endif
+#endif
 
 //timing stuff
 #define MSG_INTERVAL 10  //timing delay in ms between messages sent by node
@@ -25,7 +43,11 @@ uint8_t brakePercentByte = 0; //0-255, for CAN message. Brake % = BrakePercentBy
 
 //throttle
 #define ACC_PIN A0  //analog pin that the accelerator is connected to
+#ifdef DUAL_TPS_SENSOR
+#define ACC_PIN2 A1
+#endif
 uint16_t throttleRaw = 0;  //0-1023, raw value from Arduino ADC
+uint16_t throttleRaw2 = 0;
 uint8_t throttlePercentByte = 0;  //0-255, for CAN message. Throttle % = ThrottleByte * 0.4
 
 //filtering
@@ -64,6 +86,10 @@ void sendCanMessage(){
 
 void readThrottle(){
   throttleRaw = analogRead(ACC_PIN);  //reads 10bit ADC value
+  #ifdef DUAL_TPS_SENSOR
+  throttleRaw2 = analogRead(ACC_PIN2);
+  #endif
+  //TODO: implement dual TPS checking code
 }
 
 void readBrake(){
@@ -116,7 +142,7 @@ void setup() {
   #endif //#ifdef DEBUG
   
   mcp2515.reset();
-  mcp2515.setBitrate(CAN_500KBPS);
+  mcp2515.setBitrate(CAN_500KBPS, MCP_8MHZ);
   mcp2515.setNormalMode();
   sendStatus(1);  
 }

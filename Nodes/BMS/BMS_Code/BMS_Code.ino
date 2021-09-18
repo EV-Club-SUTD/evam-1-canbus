@@ -1,8 +1,12 @@
 /*
 BMS CODE FOR EVAM
 
+FUNCTIONS
+-Relay certain information from the Battery's internal BMS CAN Bus to the EVAM CAN Bus
+-Monitor the voltages of the 5V and 12V rail and publish to CANBus
+
 Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
-Relays certain information from the Battery's internal BMS CAN Bus to the EVAM CAN Bus
+
 
 !This code is not millis() overflow protected!
 */
@@ -82,11 +86,11 @@ void setup() {
 
   //initialise both CAN Bus modules
   batteryMcp2515.reset();
-  batteryMcp2515.setBitrate(CAN_500KBPS);
+  batteryMcp2515.setBitrate(CAN_250KBPS, MCP_8MHZ);
   batteryMcp2515.setNormalMode();
 
   evamMcp2515.reset();
-  evamMcp2515.setBitrate(CAN_500KBPS);
+  evamMcp2515.setBitrate(CAN_500KBPS, MCP_8MHZ);
   evamMcp2515.setNormalMode();
 
   sendStatus(1);  //update status to `ok`
@@ -109,6 +113,9 @@ void loop() {
   }
   if ((errorState == 0) && (millis() - lastRcv1Millis < BMS_CAN_TIMEOUT) && (millis() - lastRcv1Millis < BMS_CAN_TIMEOUT)){
     sendStatus(1);  //error is solved
+    #ifdef DEBUG
+    Serial.print("BMS CAN Working Again");
+    #endif
   }
   if (millis() - lastSendMillis > MSG_INTERVAL){
     sendCanMessage(); 
@@ -116,5 +123,8 @@ void loop() {
   }
   if ((errorState != 0) && ((millis() - lastRcv1Millis > BMS_CAN_TIMEOUT) || (millis() - lastRcv1Millis > BMS_CAN_TIMEOUT))){
     sendStatus(0);  //raise error (BMS CAN Timeout)
+    #ifdef DEBUG
+    Serial.print("BMS CAN Timeout!!");
+    #endif
   }
 }
