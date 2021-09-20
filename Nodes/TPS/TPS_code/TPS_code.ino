@@ -18,6 +18,8 @@ Connect A1 to the brake
 !This code is not millis() overflow protected!
 */
 
+//TODO:  Add in dual TPS and BPS code
+
 #include <Ewma.h>
 #include <SPI.h>
 #include <mcp2515.h>  //arduino-mcp2515 by autowp: https://github.com/autowp/arduino-mcp2515/
@@ -55,10 +57,26 @@ Ewma throttleFilter(0.1);
 Ewma brakeFilter(0.1);
 
 
-//can bus stuff
-struct can_frame canStatusMsg;  //status of the node
-struct can_frame canAccMsg; //main accelerator/brake message
+/***CAN BUS STUFF***/
 MCP2515 mcp2515(10);
+
+//status message
+struct can_frame canStatusMsg;  //status of the node
+canStatusMsg.can_id  = 0x0A;
+canStatusMsg.can_dlc = 1;
+canStatusMsg.data[0] = errorState;
+
+//main message
+struct can_frame canAccMsg; //main accelerator/brake message
+canAccMsg.can_id  = 0x020;
+canAccMsg.can_dlc = 6;
+canAccMsg.data[0] = 0x00;
+canAccMsg.data[1] = 0x00;
+canAccMsg.data[2] = 0x00;
+canAccMsg.data[3] = 0x00;
+canAccMsg.data[4] = 0x00;
+canAccMsg.data[5] = 0x00;
+
 
 void sendCanMessage(){
   throttlePercentByte = map(throttleRaw, 0, 1023, 0, 255);  //maps the 10bit ADC value to 1 byte to be sent on the CANBus
@@ -116,22 +134,6 @@ void sendStatus(uint8_t status = 0){
   mcp2515.sendMessage(&canStatusMsg);
 }
 void setup() {
-  //status message
-  canStatusMsg.can_id  = 0x0A;
-  canStatusMsg.can_dlc = 1;
-  canStatusMsg.data[0] = errorState;
-
-  //main message
-  canAccMsg.can_id  = 0x020;
-  canAccMsg.can_dlc = 6;
-  canAccMsg.data[0] = 0x00;
-  canAccMsg.data[1] = 0x00;
-  canAccMsg.data[2] = 0x00;
-  canAccMsg.data[3] = 0x00;
-  canAccMsg.data[4] = 0x00;
-  canAccMsg.data[5] = 0x00;
-
-
   #ifdef DEBUG  //debug mode
   //while (!Serial);
   Serial.begin(115200);
