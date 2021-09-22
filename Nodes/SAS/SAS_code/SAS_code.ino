@@ -1,11 +1,15 @@
 /*
 SAS CODE FOR EVAM
 
-Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
+FUNCTIONS
+- Outputs the steering angle
 
-Outputs the steering angle
-
+TODO: 
 Code is still uder development
+- test SAS sensor porperly
+- implement readSteeringAngle()
+
+Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
 
 !This code is not millis() overflow protected!
 */
@@ -44,6 +48,7 @@ void sendCanMessage(){
 
 void readSteering(){
   steeringAngle = 0;  //from sensor
+  //TODO
 }
 
 void average(){

@@ -20,15 +20,10 @@ Connect A1 to the brake
 
 //TODO:  Add in dual TPS and BPS code
 
-#include <Ewma.h>
+#include <EwmaT.h>
 #include <SPI.h>
 #include <mcp2515.h>  //arduino-mcp2515 by autowp: https://github.com/autowp/arduino-mcp2515/
 #define DEBUG
-//#define DUAL_TPS_SENSOR //for use with dual TPS (for redundancy)
-  #ifdef DUAL_TPS_SENSOR
-  //#define TPS2_REVERSE_VOLTAGE  //TPS 2 voltage decreases as the pedal is pressed more
-  #endif
-#endif
 
 //timing stuff
 #define MSG_INTERVAL 10  //timing delay in ms between messages sent by node
@@ -37,91 +32,81 @@ unsigned long lastMessageTime = 0;  //keeps track of the timestamp of the last m
 //node status
 uint8_t errorState = 255;  //state of the node. 0: error, 1: ok, 255: offline
 
-//brake
-#define BRAKE_PIN A1  //analog pin that the brake pressure sensor is connected to
-uint16_t brakeRaw = 0;  //0-1023, raw value from Arduino ADC
-uint8_t brakePressureByte = 0; //0-255, for CAN message. Brake Pressure = BrakePressureByte * 4. This is just a test value and needs to be calibrated
-uint8_t brakePercentByte = 0; //0-255, for CAN message. Brake % = BrakePercentByte * 0.4
 
-//throttle
+//throttle & brake 
+//#define DUAL_TPS_SENSOR //for use with dual TPS (for redundancy)
+  #ifdef DUAL_TPS_SENSOR
+  //#define TPS2_REVERSE_VOLTAGE  //TPS 2 voltage decreases as the pedal is pressed more
+  #endif
+#endif
+//#define TWO_BRAKE_SENSORS
+
 #define ACC_PIN A0  //analog pin that the accelerator is connected to
 #ifdef DUAL_TPS_SENSOR
 #define ACC_PIN2 A1
+#endif  //DUAL_TPS_SENSOR
+#define BRAKE_PIN A2  //analog pin that the brake pressure sensor is connected to
+#ifdef TWO_BRAKE_SENSORS  //for front and rear brake circuit pressure monitoring
+#define BRAKE_PIN2 A3
+#endif  //TWO_BRAKE_SENSORS
+
+EwmaT <uint32_t> throttleFilter(3, 100);
+EwmaT <uint32_t> brakeFilter(3, 100);
+#ifdef TWO_BRAKE_SENSORS
+EwmaT <uint32_t> brakeFilter2(3, 100);
 #endif
-uint16_t throttleRaw = 0;  //0-1023, raw value from Arduino ADC
-uint16_t throttleRaw2 = 0;
-uint8_t throttlePercentByte = 0;  //0-255, for CAN message. Throttle % = ThrottleByte * 0.4
-
-//filtering
-Ewma throttleFilter(0.1);
-Ewma brakeFilter(0.1);
-
 
 /***CAN BUS STUFF***/
 MCP2515 mcp2515(10);
-
-//status message
 struct can_frame canStatusMsg;  //status of the node
-canStatusMsg.can_id  = 0x0A;
-canStatusMsg.can_dlc = 1;
-canStatusMsg.data[0] = errorState;
-
-//main message
 struct can_frame canAccMsg; //main accelerator/brake message
-canAccMsg.can_id  = 0x020;
-canAccMsg.can_dlc = 6;
-canAccMsg.data[0] = 0x00;
-canAccMsg.data[1] = 0x00;
-canAccMsg.data[2] = 0x00;
-canAccMsg.data[3] = 0x00;
-canAccMsg.data[4] = 0x00;
-canAccMsg.data[5] = 0x00;
 
-
-void sendCanMessage(){
-  throttlePercentByte = map(throttleRaw, 0, 1023, 0, 255);  //maps the 10bit ADC value to 1 byte to be sent on the CANBus
-  uint16_t brakePressure16bit = map(brakeRaw, 0, 1023, 0, 255); //maps the 10bit ADC value to 1 byte to be sent on the CANBus. this should be changed once we can test the range of the sensor
-  brakePressureByte = constrain(brakePressure16bit, 0 , 255);   //constains in case there is an overflow
-  uint16_t brakePercent16bit = map(brakeRaw, 0, 1023, 0, 255);  //needs to be calibrated
-  brakePercentByte = constrain(brakePercent16bit, 0 , 255);     //constains in case there is an overflow
-  canAccMsg.data[0] = throttlePercentByte;  //accelerator percentage
-  canAccMsg.data[2] = brakePressureByte;    //brake pressure
-  canAccMsg.data[4] = brakePercentByte;     //brake percentage
-  mcp2515.sendMessage(&canAccMsg);
-  
-  #ifdef DEBUG  //print brake and throttle values
-  float throttlePercent = throttlePercentByte * 0.4;
-  float brakePressure = brakePressureByte * 4.0;
-  float brakePercent = brakePercentByte * 0.4;
+#ifdef DEBUG  
+void printAccMessage(){
   Serial.print("Throttle = ");
-  Serial.print(throttlePercent);
+  Serial.print(canAccMsg.data[0]);
   Serial.print("| Brake Pressure = ");
-  Serial.print(brakePressure);
+  Serial.print(canAccMsg.data[2]*4);
   Serial.print("| Brake Percent = ");
-  Serial.println(brakePercent);
-  #endif
+  Serial.println(canAccMsg.data[4]);
 }
+#endif 
 
-void readThrottle(){
-  throttleRaw = analogRead(ACC_PIN);  //reads 10bit ADC value
+void readFilterThrottle(){
+  uint16_t throttleRaw = analogRead(ACC_PIN)<<4;  //reads 10bit ADC value, converts to 14bit
+
   #ifdef DUAL_TPS_SENSOR
-  throttleRaw2 = analogRead(ACC_PIN2);
-  #endif
+  uint16_t throttleRaw2 = analogRead(ACC_PIN2)<<4;
+  
   //TODO: implement dual TPS checking code
+  #ifdef TPS2_REVERSE_VOLTAGE
+  //??
+  #else
+  //??
+  #endif  //TPS2_REVERSE_VOLTAGE
+  #endif  //DUAL_TPS_SENSOR
+  
+  //filtering
+  uint32_t filteredThrottle = throttleFilter.filter(throttleRaw); //is actually a 16 bit number
+  canAccMsg.data[0] = filteredThrottle>>6;  //convert back to 8 bit number to send on canbus
 }
 
-void readBrake(){
-  //brakeRaw = analogRead(BRAKE_PIN);  //reads 10bit ADC value
-  brakeRaw = 0;  //from sensor
+void readFilterBrake(){
+  //uint16_t brakeRaw = analogRead(BRAKE_PIN)<<4;  //reads 10bit ADC value, converts to 14bit
+  uint16_t brakeRaw = 0;  //from sensor
+
+    //filtering
+  uint32_t filteredBrake = brakeFilter.filter(brakeRaw); //is actually a 16 bit number
+  uint8_t brakePercent = calcBrakePercent((filteredBrake>>6)));
+  canAccMsg.data[2] = (filteredBrake>>6)*2;  //convert back to 8 bit number to send on canbus
+  canAccMsg.data[2] = brakePercent;
 }
 
-void average(){
-  float throttleAvg = throttleFilter.filter(throttleRaw);
-  float brakeAvg = brakeFilter.filter(brakeRaw);
-  throttleRaw = (int)throttleAvg;
-  brakeRaw = (int)brakeAvg;
+//calculates the estimated braking power applied by the driver
+uint8_t calcBrakePercent(uint8_t brakeRaw){
+  uint8_t brakePercent = brakeRaw;  //idk man need a way to convert from sensor reading to brake percentage
+  return brakePercent;
 }
-
 
 //to update CANBus on the status of the node
 void sendStatus(uint8_t status = 0){
@@ -142,7 +127,26 @@ void setup() {
   Serial.print("WARNING: This sketch was designed for an arduino Nano");
   #endif //#ifndef ARDUINO_AVR_NANO
   #endif //#ifdef DEBUG
+
+  //status message
+  canStatusMsg.can_id  = 0x0A;
+  canStatusMsg.can_dlc = 1;
+  canStatusMsg.data[0] = errorState;
   
+  //accelerator n brake message
+  canAccMsg.can_id  = 0x20;
+  canAccMsg.can_dlc = 5;
+  canAccMsg.data[0] = 0x00;
+  canAccMsg.data[1] = 0x00;
+  canAccMsg.data[2] = 0x00;
+  #ifdef TWO_BRAKE_SENSORS
+  canAccMsg.data[3] = 0x00; //set to 0 becuase 
+  #else
+  canAccMsg.data[3] = 0xFF; //set brake 2 to 255 to flag that it is not in use
+  #endif
+  canAccMsg.data[4] = 0x00;
+
+  //initialise CAN Bus module
   mcp2515.reset();
   mcp2515.setBitrate(CAN_500KBPS, MCP_8MHZ);
   mcp2515.setNormalMode();
@@ -150,10 +154,13 @@ void setup() {
 }
 
 void loop() {
-  readThrottle();
-  readBrake();
-  average();
+  readFilterThrottle();
+  readFilterBrake();
   if(millis() - lastMessageTime >= MSG_INTERVAL){
-    sendCanMessage();
+    mcp2515.sendMessage(&canAccMsg);
+    #ifdef DEBUG  
+    //print brake and throttle values
+    printAccMessage();
+    #endif 
   }
 }
