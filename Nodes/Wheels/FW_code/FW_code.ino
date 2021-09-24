@@ -15,7 +15,8 @@ Code is still under development
 */
 #include <SPI.h>
 #include <mcp2515.h>  //arduino-mcp2515 by autowp: https://github.com/autowp/arduino-mcp2515/
-#define DEBUG
+#include "FW_config.h"
+
 
 //timing
 #define THROTTLE_TIMEOUT 300    //timeout for not recieving throttle messages before an error is raised
@@ -41,15 +42,6 @@ uint8_t flThrottle = 0;
 uint8_t frThrottle = 0;
 bool throttleRev = 0;
 uint8_t boost = 0;
-
-//Connections to ESC
-//TODO
-#define LEFT_THROTTLE_PIN 1 //fill in
-#define LEFT_REVERSE_PIN 2 //fill in
-#define LEFT_BOOST_PIN 3 //fill in
-#define RIGHT_THROTTLE_PIN 1 //fill in
-#define RIGHT_REVERSE_PIN 2 //fill in
-#define RIGHT_BOOST_PIN 3 //fill in
 
 
 void sendCanMessage(){
