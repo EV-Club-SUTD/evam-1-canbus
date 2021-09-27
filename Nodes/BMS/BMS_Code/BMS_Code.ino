@@ -29,8 +29,8 @@ MCP2515 evamMcp2515(9);
 
 //constants for printing battery values
 #ifdef DEBUG
-float V, I;
-int SOC, Th;
+uint16_t V, I;
+uint16_t SOC, Th;
 #endif  //DEBUG
 
 //timings
@@ -68,8 +68,8 @@ void sendBattMessage(){
   evamMcp2515.sendMessage(&batteryMsg);
   #ifdef DEBUG
   //sorry all nmumbers displayed here in integers for performance. Use the CAN Bus data for higher res
-  V = (batteryMsg.data[1] << 8 + batteryMsg.data[0]) /10;
-  I = (batteryMsg.data[3] << 8 + batteryMsg.data[2]) /10 - 320;
+  V = ((batteryMsg.data[1] << 8) | batteryMsg.data[0]) /10;
+  I = ((batteryMsg.data[3] << 8) | batteryMsg.data[2]) /10 - 320;
   SOC = batteryMsg.data[6];
   Th = batteryMsg.data[7] - 40 ;
   Serial.println("V = " + String(V) + " | " + "I = " + String(I) +  " | " + "SOC = " + String(SOC)+ " | " + "Th = " + String(Th));
@@ -102,8 +102,9 @@ void readFilterVoltages(){
 void setup() {
   #ifdef DEBUG
   Serial.begin(115200);
+  Serial.println("BMS Node");
   #ifndef ARDUINO_AVR_NANO
-  Serial.print("WARNING: This sketch was designed for an arduino Nano");
+  Serial.println("WARNING: This sketch was designed for an arduino Nano");
   #endif //#ifndef ARDUINO_AVR_NANO
   #endif  //DEBUG
 

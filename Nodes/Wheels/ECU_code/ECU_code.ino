@@ -225,6 +225,11 @@ void setup(){
     mcp2515.setBitrate(CAN_500KBPS, MCP_8MHZ);
     mcp2515.setNormalMode();
 
+    /* MASK TESTING
+     * MCP2515::ERROR setFilterMask(MCP2515::MASK0, false, 0b??)
+     * MCP2515::ERROR setFilter(MCP2515::RXF0, false, const uint32_t ulData)
+     */
+
     //check all nodes are online
     while(errorState == 255){ 
         if (mcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
