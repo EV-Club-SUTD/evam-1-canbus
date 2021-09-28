@@ -20,6 +20,7 @@ Connect A1 to the brake
 
 //TODO:  Add in dual TPS and BPS code
 
+#include "Arduino.h"
 #include <EwmaT.h>
 #include <SPI.h>
 #include <mcp2515.h>  //arduino-mcp2515 by autowp: https://github.com/autowp/arduino-mcp2515/
@@ -120,11 +121,10 @@ void sendStatus(uint8_t status = 0){
 }
 void setup() {
   #ifdef DEBUG  //debug mode
-  //while (!Serial);
   Serial.begin(115200);
-  Serial.println("TPS");
+  Serial.println("TPS Node");
   #ifndef ARDUINO_AVR_NANO
-  Serial.print("WARNING: This sketch was designed for an arduino Nano");
+  Serial.println("WARNING: This sketch was designed for an arduino Nano");
   #endif //#ifndef ARDUINO_AVR_NANO
   #endif //#ifdef DEBUG
 

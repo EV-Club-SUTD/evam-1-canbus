@@ -14,13 +14,14 @@ Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
 !This code is not millis() overflow protected!
 */
 
+#include "Arduino.h"
 #include <SPI.h>
 #include <mcp2515.h>
 #include <EwmaT.h>
 #define DEBUG
 
 //can bus
-struct can_frame canMsg;
+struct can_frame canMsg;        //generic CAN message for recieving data
 struct can_frame batteryMsg;
 struct can_frame canStatusMsg;  //status of the node
 struct can_frame voltageMsg;  //Voltage Rail values
