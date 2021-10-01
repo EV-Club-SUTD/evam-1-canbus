@@ -282,18 +282,21 @@ void setup(){
                 }
             }
         }
-        if((otherNodeStatuses & 0b11110111) == 0b01110111){  //filter out IMU
+        if((otherNodeStatuses & 0b11100111) == 0b01100111){  //filter out SAS and IMU (position 3 and 4)
         sendStatus(1); //ECU is ready
         }
     } 
 }
 
 void loop(){   //TODO
+    /* check and update eStop */
+    //update that eStop is pressed
     if((digitalRead(E_STOP_SENSE_PIN) == HIGH) && (eStop == 0)){
         eStop = 1;
         sendEStopMsg();
         sendStatus(2);
     }
+    //update that estop is released
     else if((digitalRead(E_STOP_SENSE_PIN) == LOW) && (eStop == 1)){
         eStop = 0;
         sendEStopMsg();
