@@ -1,6 +1,8 @@
 /*
 SAS CODE FOR EVAM
 
+by Nigel Gomes (https://github.com/yik3z)
+
 FUNCTIONS
 - Outputs the steering angle
 - calibrates steering
@@ -33,7 +35,8 @@ uint8_t errorState = 255;  //state of the node. 0: error, 1: ok, 255: offline
 
 //steering angle values. All values are relative to min lock, and are 12 bit (0-4095), not actual angles
 AMS_5600 ams5600; //instantiate 
-uint16_t steeringAngle = 0;  //for CAN message. Split into 2 bytes
+uint16_t steeringAngle;  //for CAN message. Split into 2 bytes
+uint8_t calibSteeringAngle;
 uint16_t centreAngle = 2047;
 #define CENTRE_ANGLE_DEVIATION_MAX 500  //maximum amount the (raw) centre angle is allowed to deviate from the ideal (2047), before the calibration function assumes something is wrong 
 #define CENTRE_CAL_EEPROM_ADDRESS 0
@@ -46,22 +49,39 @@ struct can_frame calibMsg;  //cailbration CAN message
 struct can_frame steeringMsg;  //main CAN message
 
 /***FUNCTIONS***/
+
+
 void sendCanMessage(){
-  steeringMsg.data[0] = steeringAngle & 0xFF ; //MSB, rightshift 8 bits
-  steeringMsg.data[1] = steeringAngle >> 8; //LSB, mask in only the lowest byte
+  steeringMsg.data[1] = calibSteeringAngle; //calibrated steering angle
+  steeringMsg.data[1] = steeringAngle & 0xFF; //LSB
+  steeringMsg.data[2] = steeringAngle >> 8; //MSB
   mcp2515.sendMessage(&steeringMsg);
   lastMessageTime = millis();
-  #ifdef DEBUG  //print brake and throttle values
-  Serial.print("Steering Angle = ");
-  Serial.println(int16_t(steeringAngle - centreAngle) / 130);
+  #ifdef DEBUG  //print steering value
+  Serial.print("Raw Angle = ");
+  Serial.print(steeringAngle);
+  Serial.print(" | Calibrated Angle: ");
+  Serial.println(calibSteeringAngle);
   #endif  //DEBUG
 }
 
-void readFilterSteering(){
+//gets the steering angle thru I2C
+void readSteering(){
   steeringAngle = ams5600.getScaledAngle();  //from sensor
-  //seems like no need to filter anything
 }
 
+//calculates the uint8_t version of the steering angle for byte0 of the CAN Bus message
+void calculateCalibratedSteering(){
+  int16_t calibSteeringAngle_16t = (steeringAngle - (centreAngle - 2047))>>4;
+  if(calibSteeringAngle_16t < 0){
+    calibSteeringAngle_16t = 0;
+  } else if (calibSteeringAngle_16t > 255){
+    calibSteeringAngle_16t = 255;
+  }
+  calibSteeringAngle = uint8_t(calibSteeringAngle_16t);
+}
+
+//calibrates steering (either left, right or centre position)
 void calibrate(uint8_t mode = 0){
   uint8_t res = mode;
   //cal min angle
@@ -116,7 +136,7 @@ void calibrate(uint8_t mode = 0){
     if ((int16_t(centreAngle - centreAngleTemp) > CENTRE_ANGLE_DEVIATION_MAX) || (int16_t(centreAngleTemp - centreAngle) >  CENTRE_ANGLE_DEVIATION_MAX)){ 
       res = 255;  //failed
       #ifdef DEBUG
-      Serial.println("Calibration Failed! Centre point is too far away. Check your steering angle again.");
+      Serial.println("Calibration Failed! Centre point is too far away. Check if steering is centred.");
       #endif  //DEBUG
     }
     if (res != 255){  //if calibration is accepted
@@ -124,7 +144,7 @@ void calibrate(uint8_t mode = 0){
       EEPROM.update(CENTRE_CAL_EEPROM_ADDRESS, centreAngle & 0xFF);
       EEPROM.update(CENTRE_CAL_EEPROM_ADDRESS+1, centreAngle >> 8);
       #ifdef DEBUG
-      Serial.println("Max set to" + String(centreAngle));
+      Serial.println("Centre set to" + String(centreAngle));
       #endif  //DEBUG
     }
   }
@@ -149,7 +169,30 @@ void calibrate(uint8_t mode = 0){
   mcp2515.sendMessage(&calibMsg);
 }
 
-void sendStatus(uint8_t status = 0){
+void checkSerial(){
+  if (Serial.available() > 0) {
+    // read the incoming byte:
+    char incomingByte = Serial.read();
+    if(incomingByte == 48){
+      Serial.println("Calib 0: Min-Max");
+      calibrate(0);
+    } else if(incomingByte == 49){
+      Serial.println("Calib 1: Min");
+      calibrate(1);
+    } else if(incomingByte == 50){
+      Serial.println("Calib 2: Max");
+      calibrate(2);
+    } else if(incomingByte == 51){
+      Serial.println("Calib 3: Centre");
+      calibrate(3);
+    } else if(incomingByte == 52){
+      Serial.println("Calib 4: Reset");
+      calibrate(4);
+    }
+  }
+}
+
+void sendStatus(uint8_t status = errorState){
   errorState = status;
   #ifdef DEBUG
   Serial.print("Node status: ");
@@ -177,8 +220,8 @@ void setup() {
   //SET SENSOR LIMITS
   //Once the magnet is glued on we can burn the limits in maybe?
   //may need to change these limits if the magnet is shifted
-  ams5600.setStartPosition(450);
-  ams5600.setEndPosition(3160);
+  //ams5600.setStartPosition(450);
+  //ams5600.setEndPosition(3160);
 
   //check if EEPROM has a centre calibration stored
   centreAngle = (EEPROM.read(CENTRE_CAL_EEPROM_ADDRESS)) | 
@@ -193,8 +236,9 @@ void setup() {
 
   //steering angle message
   steeringMsg.can_id  = 0x2C;
-  steeringMsg.can_dlc = 2;
+  steeringMsg.can_dlc = 3;
   steeringMsg.data[0] = 0x00;
+  steeringMsg.data[1] = 0x00;
   steeringMsg.data[1] = 0x00;
 
   //calibration message
@@ -215,14 +259,14 @@ void setup() {
     while(errorState == 255){
         if(ams5600.detectMagnet() == 1 ){
           #ifdef DEBUG
-          SERIAL.print("Current Magnitude: ");
-          SERIAL.println(ams5600.getMagnitude());
+          Serial.print("Current Magnitude: ");
+          Serial.println(ams5600.getMagnitude());
           #endif //DEBUG
           sendStatus(1);
         }
         else{
           #ifdef DEBUG
-          SERIAL.println("Can not detect magnet");
+          Serial.println("Can not detect magnet");
           #endif
           if (millis() - startMillis > 3000){
             sendStatus(0);
@@ -239,18 +283,27 @@ void setup() {
 /***MAIN LOOP :) ***/
 void loop() {
   //check for calibration message
-  if (batteryMcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
+  if (mcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
     if(canMsg.can_id == 50){ //Calibrate Steering
       uint8_t calibrationMode = canMsg.data[0];
       calibrate(calibrationMode);
+    }
+    if(canMsg.can_id == 7){ //Node Status Request Message ID
+        sendStatus();
+        //#ifdef DEBUG
+        //Serial.println("Node Status Requested");
+        //#endif  //DEBUG
     }
   }
 
   //normal operation
  
-  
+  checkSerial();  //for calibration request over serial
+
+
   if(millis() - lastMessageTime >= messageInterval){
-    readFilterSteering();
+    readSteering();
+    calculateCalibratedSteering();
     sendCanMessage();
   }
  

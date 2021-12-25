@@ -1,11 +1,13 @@
 /*
 TPS CODE FOR EVAM
 
+by Nigel Gomes (https://github.com/yik3z)
 
 FUNCTIONS:
 -Read throttle positions sensors and publish to CAN Bus
 --Possibly average a few readings for stability
 -If 2 TPS are connected, check between both sensors to identify throttle faults
+
 
 -Read brake pressure sensor(s) and publish [pressure inforamtion to CAN Bus
 -Convert pressure information to equivalent brake pedal position and publish to CANB us
@@ -16,51 +18,22 @@ Connect A0 to the throttle
 Connect A1 to the brake
 
 !This code is not millis() overflow protected!
+
+TPS functionality is working
+BRAKE POSITION VALUE IS SET TO EQUAL TO THROTTLE VALUE FOR TESTING
+TODO:  Add in BPS calibration code (things to do are marked with "TODO" in the comments beside it)
+
+NOTE:
+** Due to noise on the 5V line when the motors are running, the throttle values between both sensors may differ significantly. This will throw an "ERROR! Throttle mismatch" message in the serial monitor.
+** The dual throttle functionality has been diabled by commenting out '#define DUAL_TPS' in TpsConfig.h
+** Another way to do it is to raise the 'THROTTLE_DIFFERENCE_LIMIT' in TpsConfig.h to the max differnence you see in the serial monitor
+
 */
 
-//TODO:  Add in dual TPS and BPS code
+
 
 #include "Arduino.h"
-#include <EwmaT.h>
-#include <SPI.h>
-#include <mcp2515.h>  //arduino-mcp2515 by autowp: https://github.com/autowp/arduino-mcp2515/
-#define DEBUG
-
-//timing stuff
-#define MSG_INTERVAL 10  //timing delay in ms between messages sent by node
-unsigned long lastMessageTime = 0;  //keeps track of the timestamp of the last message sent
-
-//node status
-uint8_t errorState = 255;  //state of the node. 0: error, 1: ok, 255: offline
-
-
-//throttle & brake 
-//#define DUAL_TPS_SENSOR //for use with dual TPS (for redundancy)
-  #ifdef DUAL_TPS_SENSOR
-  //#define TPS2_REVERSE_VOLTAGE  //TPS 2 voltage decreases as the pedal is pressed more
-  #endif
-#endif
-//#define TWO_BRAKE_SENSORS
-
-#define ACC_PIN A0  //analog pin that the accelerator is connected to
-#ifdef DUAL_TPS_SENSOR
-#define ACC_PIN2 A1
-#endif  //DUAL_TPS_SENSOR
-#define BRAKE_PIN A2  //analog pin that the brake pressure sensor is connected to
-#ifdef TWO_BRAKE_SENSORS  //for front and rear brake circuit pressure monitoring
-#define BRAKE_PIN2 A3
-#endif  //TWO_BRAKE_SENSORS
-
-EwmaT <uint32_t> throttleFilter(3, 100);
-EwmaT <uint32_t> brakeFilter(3, 100);
-#ifdef TWO_BRAKE_SENSORS
-EwmaT <uint32_t> brakeFilter2(3, 100);
-#endif
-
-/***CAN BUS STUFF***/
-MCP2515 mcp2515(10);
-struct can_frame canStatusMsg;  //status of the node
-struct can_frame canAccMsg; //main accelerator/brake message
+#include "TpsConfig.h"
 
 #ifdef DEBUG  
 void printAccMessage(){
@@ -73,44 +46,122 @@ void printAccMessage(){
 }
 #endif 
 
+//reads the raw value from the throttle and converts it to parcentage for the CAN bus
 void readFilterThrottle(){
-  uint16_t throttleRaw = analogRead(ACC_PIN)<<4;  //reads 10bit ADC value, converts to 14bit
+  uint16_t throttleRaw = analogRead(ACC_PIN);                                           //reads 10bit ADC value
+  //Serial.println(throttleRaw);
+  throttleRaw = (checkForErroneousValues(throttleRaw, TPS1_MIN_VAL, TPS1_MAX_VAL))<<4;  //check for problematic values, then leftshift to 14 bit
+  
+  #ifdef DUAL_TPS
+    uint16_t throttleRaw2 = analogRead(ACC_PIN2);                                         //reads 10bit ADC value
+    //Serial.println(String(throttleRaw) + " | " + String(throttleRaw2));
+    throttleRaw2 = (checkForErroneousValues(throttleRaw2, TPS2_MIN_VAL, TPS2_MAX_VAL))<<4;  //check for problematic values, then leftshift to 14 bit
+  #endif  //DUAL_TPS
 
-  #ifdef DUAL_TPS_SENSOR
-  uint16_t throttleRaw2 = analogRead(ACC_PIN2)<<4;
-  
-  //TODO: implement dual TPS checking code
-  #ifdef TPS2_REVERSE_VOLTAGE
+  /* FILTERING */
+  #ifdef FILTER_THROTTLE
+    uint32_t filteredThrottle = throttleFilter.filter(throttleRaw); //is actually a 16 bit number
+    #ifdef DUAL_TPS
+      uint32_t filteredThrottle2 = throttleFilter.filter(throttleRaw2); //is actually a 16 bit number
+    #endif  //DUAL_TPS
+
+  #else //ndef FILTER_VALUES
+    uint32_t filteredThrottle = throttleRaw;
+    #ifdef DUAL_TPS
+      uint32_t filteredThrottle2 = throttleRaw2;
+    #endif  //DUAL_TPS
+
+  #endif  //FILTER_VALUES
+
+  /* MAPPING */
+  filteredThrottle = map(filteredThrottle, TPS1_MIN_VAL<<4, TPS1_MAX_VAL<<4, 0, 16000);
+  #ifdef DUAL_TPS
+    //TODO: implement dual TPS checking code
+    #ifdef TPS2_REVERSE_VOLTAGE
+      filteredThrottle2 = map(filteredThrottle2, TPS2_MIN_VAL<<4, TPS2_MAX_VAL<<4, 16000, 0);
+      
+    #else //TPS2 is not reverse voltage
+      filteredThrottle2 = map(filteredThrottle2, TPS2_MIN_VAL<<4, TPS2_MAX_VAL<<4, 0, 16000);
+    #endif  //TPS2_REVERSE_VOLTAGE
+
+    //DUAL TPS REDUNDANCY CHECK
+    int16_t diff = filteredThrottle - filteredThrottle2;
+    #ifdef DEBUG
+    //Serial.println(String(filteredThrottle) + " | " + String(filteredThrottle2)); //disabled for speeeed hehe
+    #endif //DEBUG
+    if((diff>THROTTLE_DIFFERENCE_LIMIT) || (diff<-THROTTLE_DIFFERENCE_LIMIT)){  //determined empirically. It may be different based on use cases
+      //ERROR!!
+      #ifdef DEBUG
+      Serial.println("ERROR! Throttle Mismatch!");
+      Serial.println(diff);
+      #endif
+      if(errorState != 0){
+        sendStatus(0);
+      }
+      filteredThrottle = 0; //set throttle to 0 for safety
+    }
+    else{ //no throttle mismatch
+      if(errorState = 0){  //Recovered from throttle mismatch
+        sendStatus(1);
+      }
+      //do any further post processing with the valid throttle data
+    }
+
+  #else //not DUAL_TPS
   //??
-  #else
-  //??
-  #endif  //TPS2_REVERSE_VOLTAGE
-  #endif  //DUAL_TPS_SENSOR
-  
-  //filtering
-  uint32_t filteredThrottle = throttleFilter.filter(throttleRaw); //is actually a 16 bit number
-  canAccMsg.data[0] = filteredThrottle>>6;  //convert back to 8 bit number to send on canbus
+  #endif  //DUAL_TPS
+
+  canAccMsg.data[0] = filteredThrottle>>6;  //rightshitf 14 bit back to 8 bit number to send on canbus
 }
 
 void readFilterBrake(){
-  //uint16_t brakeRaw = analogRead(BRAKE_PIN)<<4;  //reads 10bit ADC value, converts to 14bit
+  //uint16_t brakeRaw = analogRead(BRAKE_PIN)<<4;  //reads 10bit ADC value, converts to 14bit //TODO: enable this and disable the next line when the brake sensor is fitted in
   uint16_t brakeRaw = 0;  //from sensor
 
-    //filtering
+  /* FILTERING */
+  #ifdef FILTER_BRAKE
   uint32_t filteredBrake = brakeFilter.filter(brakeRaw); //is actually a 16 bit number
-  uint8_t brakePercent = calcBrakePercent((filteredBrake>>6)));
+  #else
+  uint32_t filteredBrake = brakeRaw;
+  #endif //FILTER_BRAKE
+  
+  uint8_t brakePercent = calcBrakePercent(filteredBrake>>6);
   canAccMsg.data[2] = (filteredBrake>>6)*2;  //convert back to 8 bit number to send on canbus
-  canAccMsg.data[2] = brakePercent;
+  //canAccMsg.data[4] = brakePercent;
+  canAccMsg.data[4] = canAccMsg.data[0];  //set brake percent same as throttle percent for testing
+}
+
+uint16_t checkForErroneousValues(uint16_t _rawVal, uint16_t minVal, uint16_t maxVal){
+  if(_rawVal < (minVal-50)){  //value too low, probably disconnected sensor!
+    #ifdef DEBUG
+    Serial.print("Sensor Value too low! Is it disconnected?");
+    #endif
+    if(errorState = 1){  //send CAN error message
+      sendStatus(0);
+    }
+  }else if(_rawVal > (maxVal+50)){ //Value too high, idk what could cause this
+    #ifdef DEBUG
+    Serial.print("Sensor Value too high!");
+    #endif
+    if(errorState = 1){  //send CAN error message
+      sendStatus(0);
+    }
+    _rawVal = 0;  //set to 0 for safety
+  }else if(_rawVal < minVal){
+    _rawVal = minVal; //constrain it to the minimum value
+  }else if(_rawVal > maxVal){
+    _rawVal = maxVal; //constrain it to the maximum value
+  }
+  return _rawVal;
 }
 
 //calculates the estimated braking power applied by the driver
-uint8_t calcBrakePercent(uint8_t brakeRaw){
-  uint8_t brakePercent = brakeRaw;  //idk man need a way to convert from sensor reading to brake percentage
-  return brakePercent;
+uint8_t calcBrakePercent(uint8_t _brakeRaw){
+  uint8_t _brakePercent = _brakeRaw;  //TODO: convert from sensor reading to brake percentage
+  return _brakePercent;
 }
 
-//to update CANBus on the status of the node
-void sendStatus(uint8_t status = 0){
+void sendStatus(uint8_t status){
   errorState = status;
   #ifdef DEBUG
   Serial.print("Node status: ");
@@ -119,22 +170,15 @@ void sendStatus(uint8_t status = 0){
   canStatusMsg.data[0] = status;
   mcp2515.sendMessage(&canStatusMsg);
 }
-void setup() {
-  #ifdef DEBUG  //debug mode
-  Serial.begin(115200);
-  Serial.println("TPS Node");
-  #ifndef ARDUINO_AVR_NANO
-  Serial.println("WARNING: This sketch was designed for an arduino Nano");
-  #endif //#ifndef ARDUINO_AVR_NANO
-  #endif //#ifdef DEBUG
 
+void setupCan(){
   //status message
-  canStatusMsg.can_id  = 0x0A;
+  canStatusMsg.can_id  = TPS_STATUS_MSG_ID;
   canStatusMsg.can_dlc = 1;
   canStatusMsg.data[0] = errorState;
   
   //accelerator n brake message
-  canAccMsg.can_id  = 0x20;
+  canAccMsg.can_id  = THROTTLE_BRAKE_MSG_ID;
   canAccMsg.can_dlc = 5;
   canAccMsg.data[0] = 0x00;
   canAccMsg.data[1] = 0x00;
@@ -150,17 +194,47 @@ void setup() {
   mcp2515.reset();
   mcp2515.setBitrate(CAN_500KBPS, MCP_8MHZ);
   mcp2515.setNormalMode();
+}
+
+void readIncomingMessages(){
+  if (mcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
+    if(canMsg.can_id == NODE_STATUS_REQUEST_MSG_ID){ //Node Status Request Message ID
+      sendStatus();
+      //#ifdef DEBUG
+      //Serial.println("Node Status Requested");
+      //#endif  //DEBUG
+    }
+  }
+}
+ 
+void setup() {
+  #ifdef DEBUG  //debug mode
+  Serial.begin(115200);
+  Serial.println("TPS Node");
+  Serial.println("WARNING: Brake VALUE SET TO ACCELERATOR VALUE FOR TESTING");
+  #ifndef ARDUINO_AVR_NANO
+  Serial.println("WARNING: This sketch was designed for an arduino Nano");
+  #endif //#ifndef ARDUINO_AVR_NANO
+  #endif //#ifdef DEBUG
+  setupCan();
   sendStatus(1);  
 }
 
 void loop() {
+  readIncomingMessages();
   readFilterThrottle();
   readFilterBrake();
   if(millis() - lastMessageTime >= MSG_INTERVAL){
     mcp2515.sendMessage(&canAccMsg);
-    #ifdef DEBUG  
-    //print brake and throttle values
-    printAccMessage();
-    #endif 
+
+    lastMessageTime = millis();
   }
+
+  #ifdef DEBUG  
+  if (millis() - lastPrintMillis >= PRINT_INTERVAL)
+  {
+    printAccMessage();      //print brake and throttle values
+    lastPrintMillis = millis();
+  }
+  #endif  
 }

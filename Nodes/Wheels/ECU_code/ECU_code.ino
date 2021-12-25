@@ -1,21 +1,27 @@
 /*
 ECU (Engine Control Unit) CODE FOR EVAM
 
+by Nigel Gomes (https://github.com/yik3z)
+
 FUNCTIONS:
-- Read individual wheel speeds from wheel nodes and calcluate vehicle speed; publish to CAN Bus
+- Read individual wheel speeds from wheel nodes and calcluate vehicle speed; publish to CAN Bus (UNTESTED)
 - Read accelerator, steering (and brake) values (and other settings, like reverse, boost, etc) and calculate individual throttle values for each wheel; publish to CAN Bus
-- Check if E stop button is pressed (100V rail); publish to CAN Bus
-- Check if the battery current is too high and lower the throttle amount if it's overloaded for too long
+    - modify the power balance to the front&rear, and left&right wheels based on steering angle, acceleration and throttle (UNTESTED)
+- Check if E stop button is pressed (100V rail); publish to CAN Bus (UNTESTED)
+- Check if the battery current is too high and lower the throttle amount if it's overloaded for too long (NOT DONE YET)
 
 Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
 
-Code is still under development
+
+!This code is not millis() overflow protected!
+
+Code is roughly working
 
 */
-#include <Arduino.h>
-#include <SPI.h>
-#include <mcp2515.h>  //arduino-mcp2515 by autowp: https://github.com/autowp/arduino-mcp2515/
+
+#include "Arduino.h"
 #include "ECU_config.h"
+#include "can_ids.h"
 
 //timing
 unsigned long lastRcvThrottleMillis = 0;    //time last throttle message was received
@@ -27,12 +33,14 @@ unsigned long lastSendVehicleSpeedMillis = 0;   //time last vehicle speed messag
 unsigned long lastErrorMsgMillis = 0;           //time last error message was sent
 unsigned long lastEStopMsgMillis = 0;           //time last estop message was sent
 
+unsigned long lastPrintMillis = 0;
+
 //Errors & e-Stops
-nodeErrorType errorState = OFFLINE;   
-uint8_t overCurrent = 0;
-bool eStop = 0;
-bool motorLock = 0;
-//uint8_t eStopPressed = 0; //flag for eStop interrupt
+nodeErrorType errorState = OFFLINE;     //generic node status
+ecuErrorType statusPart2 = NO_ERROR;        //additional information
+uint8_t overCurrent = 0;                //not implemented yet
+bool eStopPressed = 0;                         //whether e-Stop has been pressed. TODO: Change to initialise to 1 when the system is set up
+bool motorLock = 0;                     //whether motor has been locked out through HUD. TODO: Change to initialise to 1 when the system is set up
 
 /* Other node statuses
  * Order of bytes is as follows:
@@ -41,23 +49,16 @@ bool motorLock = 0;
  */
 uint8_t otherNodeStatuses = 0b00000000; 
 
-//can bus
-MCP2515 mcp2515(10);
-struct can_frame canMsg; //generic CAN message for recieving data
-struct can_frame canStatusMsg;  //status of the node
-struct can_frame eStopMsg; //e-Stop message
-struct can_frame indivWheelThrottlesMsg; // individual wheel throttles
-struct can_frame vehicleSpeedMsg; // speed message
-
 /****WHEEL & SPEED DATA****/
 //common
 uint8_t throttle = 0;
 uint8_t brakePos = 0;
-int16_t steeringAngle = 0; //divide by 10 to get actual steering angle
-bool throttleRev = 0;   //reverse. 0: forward, 1: reverse
-uint8_t boostMode = 0;  //0: normal, 1: eco, 2: boost
+int16_t steeringAngle = 128;  //0 = left lock, 255 = right lock, 127-128 = centred
+bool throttleRev = 0;       //reverse. 0: forward, 1: reverse
+uint8_t boostMode = 0;      //0: normal, 1: boost
+uint8_t ecoMode = 0;        //0: normal, 1: eco
 uint16_t vehicleSpeed = 0;  //vehicle speed. Divide by 256 to get actual speed
-bool vehicleDirection = 0;  // 0 = forward, 1 = reverse
+//bool vehicleDirection = 0;  // 0 = forward, 1 = reverse //disabled because there is no way to determine it for now.
 
 /*  Individual wheel settings. Format:
  * [0] = front left
@@ -67,7 +68,6 @@ bool vehicleDirection = 0;  // 0 = forward, 1 = reverse
  */
 uint8_t wheelDirs[4];       //direction of rotation of the wheel. Forward = 0, reverse = 1
 uint16_t wheelSpeeds[4];    //wheel speeds. Multiply by 0.03 to get value in RPM
-uint8_t wheelThrottles[4];  // wheel throttle values to send to nodes
 
 /***OTHER FUNCTIONS***/
 //current control
@@ -76,23 +76,73 @@ uint8_t battTemp = 0; //subtract 40 from this for the actual temperature
 
 ///abs and traction control
 uint8_t wheelSpin = 0b0000;     //Set 1 for the respective bit if a wheel is spinning. order of bits: rr rl fr fl (i.e. reversed)
-uint8_t lrDiffBalance = 0;      //Left-Right Differential Power Balance. 0: equal distribution between inner and outer wheel, 255: all power to outer wheel
-uint8_t lrDiffScale = 1;        //working it out
-uint8_t frDiffBalance = 127;    //Front-Rear Differential Balance. 0: 100%front, 127: 50-50, 255: 100% rear
-uint8_t frDiffScale = 1;        //working it out
+uint8_t wheelLockup = 0b0000;   //Set 1 for the respective bit if a wheel is locked up. order of bits: rr rl fr fl (i.e. reversed)
 
 /****FUNCTIONS****/
 
-/*
-void eStopISR(){
-    eStopPressed = 1;
+/* STATUSES AND E-STOP */
+
+//Updates CANBus on the status of the e-Stop
+void sendEStopMsg(){
+    #ifdef DEBUG
+    Serial.print("e-Stop ");
+    Serial.println(eStopPressed ? "pressed" : "released");
+    #endif //DEBUG
+    eStopMsg.data[0] = eStopPressed;
+    mcp2515.sendMessage(&eStopMsg);
+    lastEStopMsgMillis = millis();
 }
-*/
+
+//1) Checks and updates eStop variable
+//2) Sends out e-stop CAN message if it has changed
+//3) Updates node status
+void checkEStop(){
+    //may change this to an interrupt sequence later on
+    if((digitalRead(E_STOP_SENSE_PIN) == LOW) && (eStopPressed == 0)){
+        eStopPressed = 1;  //pressed
+        sendEStopMsg();
+    }
+    //update that estop is released
+    else if((digitalRead(E_STOP_SENSE_PIN) == HIGH) && (eStopPressed == 1)){
+        eStopPressed = 0;  //released
+        sendEStopMsg();
+    }
+}
+
+/*!
+ * Updates CANBus on the status of the node. 
+ * Also updates the status of the node if provided with a status, 
+ * otherwise, uses the existing status of the node
+ * @param   status    new errorState (generic status) of the node
+ * @param   status2   secondary information about the status of the node
+ */
+void sendStatus(nodeErrorType status = errorState, ecuErrorType status2 = statusPart2){
+    errorState = status;
+    statusPart2 = status2;
+    #ifdef DEBUG
+    Serial.println("Node status: " + String(errorState) + " | " + String(statusPart2));
+    #endif //DEBUG
+    canStatusMsg.data[0] = errorState;
+    canStatusMsg.data[1] = statusPart2;
+    mcp2515.sendMessage(&canStatusMsg);
+    lastErrorMsgMillis = millis();
+}
+
+//reads EEPROM for saved data
+//TODO Check if the EEPROM data is already saved on the board (it should be)
+void readEEPROMSavedData(){
+    lrPowerBalance = EEPROM.read(LR_POWER_BALANCE_ADDR);
+    lrPowerScale = EEPROM.read(LR_POWER_SCALE_ADDR);
+    frPowerBalance = EEPROM.read(FR_POWER_BALANCE_ADDR);
+    frPowerScale = EEPROM.read(FR_POWER_SCALE_ADDR);
+}
+
+/* CAN BUS */
 
 //Checks for and reads incoming messages
 void readIncomingMessages(){
     if (mcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
-        if(canMsg.can_id == 0x05){ //Motor Lock
+        if(canMsg.can_id == MOTOR_LOCKOUT_MSG_ID){ //Motor Lock
             motorLock = canMsg.data[0];
             //#ifdef DEBUG
             //Serial.print("Motors ");
@@ -100,59 +150,72 @@ void readIncomingMessages(){
             //#endif  //DEBUG
         }
 
+        if(canMsg.can_id == NODE_STATUS_REQUEST_MSG_ID){ //Node Status Request Message ID
+            sendStatus();
+            //#ifdef DEBUG
+            //Serial.println("Node Status Requested");
+            //#endif  //DEBUG
+        }
+
         //throttle, steering, battery
-        else if(canMsg.can_id == 0x20){ //Throttle n Brake Position
+        else if(canMsg.can_id == THROTTLE_BRAKE_MSG_ID){ //Throttle n Brake Position
             throttle = canMsg.data[0];
             brakePos = canMsg.data[4];
             lastRcvThrottleMillis = millis();
+            if(statusPart2 == THROTTLE_TIMED_OUT){  //reset throttle timed out flag
+                sendStatus(OK, NO_ERROR);
+            }
             #ifdef DEBUG
-            //Serial.println("Throttle: " + String(throttle));
+            //Serial.println("Throttle: " + String(throttle) + " | Brake: " + String(brakePos));
             #endif  //DEBUG
         }
-        else if(canMsg.can_id == 0x22){ //Reverse Selected
+        else if(canMsg.can_id == REV_BOOST_MSG_ID){ //Reverse Selected
             throttleRev = canMsg.data[0];
             //#ifdef DEBUG
             //Serial.println("Reverse: " + String(throttleRev));
             //#endif  //DEBUG
         }
-        else if(canMsg.can_id == 0x24){ //Battery Stats
+        else if(canMsg.can_id == BATT_STATS_MSG_ID){ //Battery Stats
             battCurrent = canMsg.data[2] + (canMsg.data[3]<<8);
             battTemp = canMsg.data[2];
             // #ifdef DEBUG
-            // //Serial.println();
+            // //Serial.println("Batt Current: " + String(battCurrent) + "Batt Temp: " + String(battTemp));
             // #endif  //DEBUG
         }
-        else if(canMsg.can_id == 0x2C){ //Steering Wheel Angle
-            steeringAngle = canMsg.data[0] + (canMsg.data[1]<<8) - 1800;
+        else if(canMsg.can_id == STEERING_MSG_ID){ //Steering Wheel Angle
+            steeringAngle = canMsg.data[0];
             lastRcvSteeringMillis = millis();
+            if(statusPart2 == STEERING_TIMED_OUT){  //reset steering timed out flag
+                sendStatus(errorState, NO_ERROR);
+            }
             // #ifdef DEBUG
-            // //Serial.println("Steering Angle: " + String(steeringAngle/10));
+            // //Serial.println("Steering Angle: " + String(steeringAngle));
             // #endif  //DEBUG
         }
 
         //wheels
-        else if(canMsg.can_id == 0x34){ //FL Wheel Speed
+        else if(canMsg.can_id == FL_SPEED_MSG_ID){ //FL Wheel Speed
             wheelSpeeds[0] = canMsg.data[0] + (canMsg.data[1]<<8);
             lastRcvWheelSpeedMillis = millis();
             // #ifdef DEBUG
             // //Serial.println("FLWheel: " + String(wheelSpeeds[0]/33));   //approximation
             // #endif  //DEBUG
         }
-        else if(canMsg.can_id == 0x35){ //FR Wheel Speed
+        else if(canMsg.can_id == FR_SPEED_MSG_ID){ //FR Wheel Speed
             wheelSpeeds[1] = canMsg.data[0] + (canMsg.data[1]<<8);
             //lastRcvWheelSpeedMillis = millis();
             // #ifdef DEBUG
             // //Serial.println("FRWheel: " + String(wheelSpeeds[1]/33));   //approximation
             // #endif  //DEBUG
         }
-        else if(canMsg.can_id == 0x36){ //RL Wheel Speed
+        else if(canMsg.can_id == RL_SPEED_MSG_ID){ //RL Wheel Speed
             wheelSpeeds[2] = canMsg.data[0] + (canMsg.data[1]<<8);
             //lastRcvWheelSpeedMillis = millis();
             // #ifdef DEBUG
             // //Serial.println("RLWheel: " + String(wheelSpeeds[2]/33));   //approximation
             // #endif  //DEBUG
         }
-        else if(canMsg.can_id == 0x37){ //RR Wheel Speed
+        else if(canMsg.can_id == RR_SPEED_MSG_ID){ //RR Wheel Speed
             wheelSpeeds[3] = canMsg.data[0] + (canMsg.data[1]<<8);
             //lastRcvWheelSpeedMillis = millis();
             // #ifdef DEBUG
@@ -161,17 +224,23 @@ void readIncomingMessages(){
         }
 
         //differential settings
-        else if(canMsg.can_id == 0x3C){ //Left-Right Differential Power Balance
-            lrDiffBalance = canMsg.data[0];
-            lrDiffScale = canMsg.data[1];
+        else if(canMsg.can_id == L_R_DIFF_MSG_ID){ //Left-Right Differential Power Balance
+            lrPowerBalance = canMsg.data[0];
+            lrPowerScale = canMsg.data[1];
+            //update EEPROM
+            EEPROM.update(LR_POWER_BALANCE_ADDR, lrPowerBalance);
+            EEPROM.update(LR_POWER_SCALE_ADDR, lrPowerScale);
             // #ifdef DEBUG
             // //Serial.println("L-R Diff Set to: " + String(lrDiffBalance);   
             // #endif  //DEBUG
         }
 
-        else if(canMsg.can_id == 0x3D){ //Front-Rear Differential Balance
-            frDiffBalance = canMsg.data[0];
-            frDiffScale = canMsg.data[1];
+        else if(canMsg.can_id == F_R_DIFF_MSG_ID){ //Front-Rear Differential Balance
+            frPowerBalance = canMsg.data[0];
+            frPowerScale = canMsg.data[1];
+            //update EEPROM
+            EEPROM.update(FR_POWER_BALANCE_ADDR, frPowerBalance);
+            EEPROM.update(FR_POWER_SCALE_ADDR, frPowerScale);
             // #ifdef DEBUG
             // //Serial.println("F-R Diff Set to: " + String(frDiffBalance);   
             // #endif  //DEBUG
@@ -179,57 +248,38 @@ void readIncomingMessages(){
     } 
 }   //readIncomingMessages()
 
-/*****STATUSES AND E-STOP*****/
-
-//1) Checks and updates eStop variable
-//2) Sends out e-stop CAN message if it has changed
-//3) Updates node status
-void checkEStop(){
-    //may change this to an interrupt sequence later on
-    if((digitalRead(E_STOP_SENSE_PIN) == HIGH) && (eStop == 0)){
-        eStop = 1;
-        sendEStopMsg();
-        sendStatus(2);
-    }
-    //update that estop is released
-    else if((digitalRead(E_STOP_SENSE_PIN) == LOW) && (eStop == 1)){
-        eStop = 0;
-        sendEStopMsg();
-        sendStatus(0);
-    }
-}
-
-/*!
- * Updates CANBus on the status of the node. 
- * Also updates the status of the node if provided with a status, 
- * otherwise, uses the existing status of the node
- * @param   status    new errorState of the node
- */
-void sendStatus(uint8_t status = errorState){
-    errorState = status;
-    #ifdef DEBUG
-    Serial.print("Node status: ");
-    Serial.println(errorState);
-    #endif //DEBUG
+void initCanBus(){
+    //status message
+    canStatusMsg.can_id  = ECU_STATUS_MSG_ID;
+    canStatusMsg.can_dlc = 2;
     canStatusMsg.data[0] = errorState;
-    mcp2515.sendMessage(&canStatusMsg);
-    lastErrorMsgMillis = millis();
+    canStatusMsg.data[1] = OK;
+
+    //e-Stop Message
+    eStopMsg.can_id  = E_STOP_MSG_ID;
+    eStopMsg.can_dlc = 1;
+    eStopMsg.data[0] = 0x00;
+
+    //Individual wheel throttles Message
+    indivWheelThrottlesMsg.can_id  = INDIV_WHEEL_THROTTLES_MSG_ID;
+    indivWheelThrottlesMsg.can_dlc = 8;
+    for (uint8_t i = 0; i<8; i++){
+        indivWheelThrottlesMsg.data[i] = 0x00;
+    }
+
+    vehicleSpeedMsg.can_id  = VEH_SPEED_MSG_ID;
+    vehicleSpeedMsg.can_dlc = 2;
+    vehicleSpeedMsg.data[0] = 0x00;
+    vehicleSpeedMsg.data[1] = 0x00;
+
+    mcp2515.reset();
+    mcp2515.setBitrate(CAN_500KBPS, MCP_8MHZ);
+    mcp2515.setNormalMode();
 }
 
-//Updates CANBus on the status of the e-Stop
-void sendEStopMsg(){
-    #ifdef DEBUG
-    Serial.print("e-Stop ");
-    Serial.println(eStop ? "pressed" : "released");
-    #endif //DEBUG
-    eStopMsg.data[0] = eStop;
-    mcp2515.sendMessage(&eStopMsg);
-    lastEStopMsgMillis = millis();
-}
-
-/***CALCULATIONS***/
+/* CALCULATIONS */
 uint16_t calcAvgRpm(uint8_t wSpin = 0b0000){
-    uint32_t _rpmSum = 0;
+    unsigned long _rpmSum = 0;
     for (uint8_t i = 0; i < 4; i++){
         /* disabled for now
         if (((wSpin >> i) & 0b0001) == 1)  {    //filter if the wheel is spinning
@@ -238,31 +288,88 @@ uint16_t calcAvgRpm(uint8_t wSpin = 0b0000){
         */
         _rpmSum += wheelSpeeds[i];
     }
-    uint32_t _avgWheelRpm = (_rpmSum / 4);
+    unsigned long _avgWheelRpm = (_rpmSum / 4);
     return uint16_t(_avgWheelRpm);
 }
 
+//compares the 4 wheel speeds to check if
+//1. Any of the wheels are spinning (i.e. significantly faster than the rest)
+//2. And of the wheels are locking up (significantly slower than the rest)
+void checkWheelSpinLockup(){
+    //TODO
+    wheelSpin = 0b0000;
+    wheelLockup = 0b0000;
+}
+
 /*!
- * Checks for wheel spin.
- * Calculates if any of the wheel speeds are a lot more than the rest and lowers the throttle for it significantly/turns off throttle for it
+ * Lowers the throttle / turns off throttle for wheels that are spinning
  */
 void absTractionControl(){ 
-    //TODO
-    uint16_t avgWheelRpm = calcAvgRpm(wheelSpin);
-    //idk what to do 
-    
+    for (uint8_t i = 0; i < 4; i++){
+        if (((wheelSpin >> i) & 0b0001) == 1)  {    //filter if the wheel is spinning
+            //reduce the throttle a bit
+            indivWheelThrottlesMsg.data[i] -= ((indivWheelThrottlesMsg.data[i]/10) *3); //reduce throttle for affected wheel by 30%
+        }
+        // if (((wheelLockup >> i) & 0b0001) == 1)  {    //filter if the wheel is locked up
+        //     //can't really do anything since we can't control the brakes
+        // }
+    }
 } 
 
-void calculateWheelThrottles(){
-    //TODO use throttle and steering, differential balance
-    for(uint8_t i = 0; i<4;i++){    //currently set as all 4 throttles are the same
-            wheelThrottles[i] = throttle;  
-        }
-    for(uint8_t i = 4; i<8;i++){    //set all 4 reverse values to be the same
-            wheelThrottles[i] = throttleRev;  
-        }
-    //absTractionControl(); //TODO
+//helper function to add the multiplier to the throttle, check for overflow, and convert to uint8_t for canbus
+uint8_t addToThrottle(int16_t amtToAdd, uint8_t throttleValToAdd){
+    int16_t finalThrottle = throttleValToAdd + amtToAdd;
+    //check if values are out of bounds and limit it
+    if(finalThrottle > 250){
+        finalThrottle = 250;
+    } else if(finalThrottle < 0){
+        finalThrottle = 0;
+    }  
+    return uint8_t(finalThrottle);
+}
 
+//modifies the left vs right wheel throttles based on the steering input
+void lrDifferential(){
+    //TODO: Test
+
+    //inefficient calculations, everything is long
+    int16_t lrExtra = (long(throttle) * long(steeringAngle-127) * long(lrPowerBalance))/(127L*255L);
+
+    //left side. Add the amount to the current throttle
+    indivWheelThrottlesMsg.data[0] = addToThrottle(lrExtra, indivWheelThrottlesMsg.data[0]);
+    indivWheelThrottlesMsg.data[2] = addToThrottle(lrExtra, indivWheelThrottlesMsg.data[2]);
+    //right side. Subtract the amount from the current throttle
+    indivWheelThrottlesMsg.data[1] = addToThrottle(-lrExtra, indivWheelThrottlesMsg.data[2]);
+    indivWheelThrottlesMsg.data[3] = addToThrottle(-lrExtra, indivWheelThrottlesMsg.data[2]);
+    
+}
+
+//modifies the front vs rear wheel throttles based on the acceleration
+void frDifferential(){
+    //TODO: test
+
+    int16_t frExtra = (long(throttle) * long(throttle) * long(frPowerBalance))/(255L*255L);
+
+    //front wheels. Subtract the amount from the current throttle
+    indivWheelThrottlesMsg.data[0] = addToThrottle(-frExtra, indivWheelThrottlesMsg.data[0]);
+    indivWheelThrottlesMsg.data[1] = addToThrottle(-frExtra, indivWheelThrottlesMsg.data[1]);
+    //rear wheels. Add the amount to the current throttle
+    indivWheelThrottlesMsg.data[1] = addToThrottle(frExtra, indivWheelThrottlesMsg.data[2]);
+    indivWheelThrottlesMsg.data[3] = addToThrottle(frExtra, indivWheelThrottlesMsg.data[2]);
+}
+
+void calculateWheelThrottles(){
+    //TODO test differential steering
+    for(uint8_t i = 0; i<4;i++){    //set all 4 throttle values to be the same
+        indivWheelThrottlesMsg.data[i] = throttle;  
+    }
+    for(uint8_t i = 4; i<8;i++){    //set all 4 reverse values to be the same
+            indivWheelThrottlesMsg.data[i] = throttleRev;  
+        }
+    lrDifferential();
+    frDifferential();
+    checkWheelSpinLockup();
+    absTractionControl();
 }
 
 void checkOverCurrent(){    //checks if battery current is too high for prolonged time
@@ -270,49 +377,50 @@ void checkOverCurrent(){    //checks if battery current is too high for prolonge
 }
 
 void calculateCarSpeedMsg(){
-    //check if wheel directions are all the same. Is there a better way to do this??
-    bool wheelsSameDir = true;
     uint16_t avgWheelRpm = 0;
-    if (wheelsSameDir){
-        avgWheelRpm = calcAvgRpm();
-    }
-    else{
-        avgWheelRpm = wheelSpeeds[0];   //just use FL wheel
-    }
-
-    //idk is this the right way to do things??
-    uint32_t vehicleSpeed32bit = avgWheelRpm * 60 * WHEEL_CIRCUMFERENCE * 256 / (1000 * 100 * 33);  //TODO: double check calculation when it's on the car  
-    vehicleSpeed = (uint16_t)vehicleSpeed32bit;
+    avgWheelRpm = calcAvgRpm();
+    unsigned long vehicleSpeed_32 = ((avgWheelRpm/3L) * 6L * (WHEEL_CIRCUMFERENCE/10L)) *256L / (10L * 1000L);  //TODO: double check calculation when it's on the car. Also, factor of 30 is there because that's how we specified it
+    vehicleSpeed = (uint16_t)vehicleSpeed_32;
 }
  
 void sendCarSpeedMsg(){
     vehicleSpeedMsg.data[0] = vehicleSpeed & 0xFF;
     vehicleSpeedMsg.data[1] = vehicleSpeed >> 8;
-    vehicleSpeedMsg.data[2] = vehicleDirection;
+    //vehicleSpeedMsg.data[2] = vehicleDirection;   //reverse flag removed
     mcp2515.sendMessage(&vehicleSpeedMsg);
     lastSendVehicleSpeedMillis = millis();
-    //TODO: reverse or forward
 }
 
 //Sends CAN message for the individual wheel throttles
 void sendIndivThrottlesMsg(){
-    for(int i = 0; i <4; i++){
-        indivWheelThrottlesMsg.data[i] = wheelThrottles[i];  
-    }
     mcp2515.sendMessage(&indivWheelThrottlesMsg);
     lastSendWheelThrottlesMillis = millis();
-
-    #ifdef DEBUG  //print brake and throttle values
-    Serial.print("Wheel Throttles: ");
-    Serial.print(wheelThrottles[0]/33);
-    Serial.print(" | ");
-    Serial.print(wheelThrottles[1]/33);
-    Serial.print(" | ");
-    Serial.print(wheelThrottles[2]/33);
-    Serial.print(" | ");
-    Serial.print(wheelThrottles[3]/33);
-    #endif
 }
+
+#ifdef DEBUG  
+//print brake and throttle values
+void printThrottles(){
+
+    Serial.print("Wheel Throttles: ");
+    Serial.print(indivWheelThrottlesMsg.data[0]);
+    Serial.print(" | ");
+    Serial.print(indivWheelThrottlesMsg.data[1]);
+    Serial.print(" | ");
+    Serial.print(indivWheelThrottlesMsg.data[2]);
+    Serial.print(" | ");
+    Serial.println(indivWheelThrottlesMsg.data[3]);
+}
+
+//print speed value
+void printSpeed(){
+    Serial.print("Speed: ");
+    for (uint8_t i = 0; i<4; i++){
+        Serial.print(wheelSpeeds[i]);
+        Serial.print(" ");
+    }
+    Serial.println();
+}
+#endif
 
 /********* SETUP AND LOOP *************/
 
@@ -324,45 +432,20 @@ void setup(){
     pinMode(E_STOP_RELAY_PIN, OUTPUT);
     #endif
 
-    /***initialise can bus messages***/
+    initCanBus();
 
-    //status message
-    canStatusMsg.can_id  = 0x08;
-    canStatusMsg.can_dlc = 1;
-    canStatusMsg.data[0] = errorState;
-
-    //e-Stop Message
-    eStopMsg.can_id  = 0x04;
-    eStopMsg.can_dlc = 1;
-    eStopMsg.data[0] = 0x00;
-
-    //Individual wheel throttles Message
-    indivWheelThrottlesMsg.can_id  = 0x30;
-    indivWheelThrottlesMsg.can_dlc = 8;
-    for (uint8_t i = 0; i<8; i++){
-        indivWheelThrottlesMsg.data[i] = 0x00;
-    }
-
-    vehicleSpeedMsg.can_id  = 0x37;
-    vehicleSpeedMsg.can_dlc = 3;
-    vehicleSpeedMsg.data[0] = 0x00;
-    vehicleSpeedMsg.data[1] = 0x00;
-    vehicleSpeedMsg.data[2] = 0x00;
+    readEEPROMSavedData();
 
     #ifdef DEBUG  //debug mode
     Serial.begin(115200);
     Serial.println("ECU");
     #ifndef ARDUINO_AVR_NANO
-    Serial.print("WARNING: This sketch was designed for an arduino Nano");
+    Serial.println("WARNING: This sketch was designed for an arduino Nano");
     #endif //#ifndef ARDUINO_AVR_NANO
     #endif //#ifdef DEBUG
-    
-    mcp2515.reset();
-    mcp2515.setBitrate(CAN_500KBPS, MCP_8MHZ);
-    mcp2515.setNormalMode();
+   
     
     //check all nodes are online
-    delay(1000); //hardcoded delay for now. Enable the below section later
     /*
     while(errorState == OFFLINE){ 
         if (mcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
@@ -420,13 +503,15 @@ void setup(){
         }
     } 
     */ 
+      delay(1000); //hardcoded delay for now. Enable the below section later
+      sendStatus(1); //ECU is ready
 }
 
-void loop(){   //TODO
+void loop(){
 
     readIncomingMessages();
 
-    checkEStop();
+    //checkEStop(); //TODO: ENABLE ONCE THE SYSTEM IS CONNECTED
     
     //send scheduled e-stop status message
     if(millis()-lastEStopMsgMillis > ESTOP_MSG_INTERVAL){
@@ -434,7 +519,7 @@ void loop(){   //TODO
     } 
     //send individual throttle values
     if(millis() - lastSendWheelThrottlesMillis >= WHEEL_THROTTLES_MSG_INTERVAL){
-        if((eStop == 0) && (motorLock == 0)){
+        if((eStopPressed == 0) && (motorLock == 0)){
             calculateWheelThrottles();
         } else{ //set all throttles to 0
             indivWheelThrottlesMsg.data[0] = 0x00;
@@ -443,6 +528,9 @@ void loop(){   //TODO
             indivWheelThrottlesMsg.data[3] = 0x00;
         }
         sendIndivThrottlesMsg();
+        #ifdef DEBUG
+        //Serial.println("Throttle In: " + String(throttle));
+        #endif
     }
     //send vehicle speed
     if(millis() - lastSendVehicleSpeedMillis >= VEHICLE_SPEED_MSG_INTERVAL){
@@ -453,15 +541,18 @@ void loop(){   //TODO
     //timeouts
     if (millis() - lastErrorMsgMillis> ERROR_MSG_INTERVAL){
         if (millis() - lastRcvThrottleMillis > THROTTLE_TIMEOUT){
-        sendStatus(0);  //raise error
+        sendStatus(GENERIC_ERROR, THROTTLE_TIMED_OUT);  //raise error
         }
-        /* //disabled for now, since they're not such serious errors
         if (millis() - lastRcvSteeringMillis > THROTTLE_TIMEOUT){
-        sendStatus(0);  //raise error
+        sendStatus(errorState, STEERING_TIMED_OUT);
         }
         if (millis() - lastRcvWheelSpeedMillis > WHEEL_SPEED_TIMEOUT){
-        sendStatus(0);  //raise error
+        sendStatus(errorState, WHEEL_SPEED_TIMED_OUT);
         }
-        */
+ 
+    }
+    if(millis() - lastPrintMillis > PRINT_INTERVAL){
+        printThrottles();
+        printSpeed();
     }
 }

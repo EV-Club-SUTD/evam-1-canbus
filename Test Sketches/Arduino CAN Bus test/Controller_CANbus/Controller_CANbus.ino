@@ -1,6 +1,7 @@
 /* Refer to motor controller document to connect to CAN Bus
  * Probably needs the 120 ohm resistor
  * and hope for the best
+ * LOOKS LIKE: THE MOTOR CONTROLLER DOESN'T HAVE A CANBUS :/
  */
 
 #include <SPI.h>

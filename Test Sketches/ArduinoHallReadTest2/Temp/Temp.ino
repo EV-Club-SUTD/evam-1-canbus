@@ -10,7 +10,6 @@
   https://www.arduino.cc/en/Tutorial/BuiltInExamples/AnalogReadSerial
 */
 #define pulsePin 2
-uint8_t sensorVal = 1;
 unsigned long pulseMicros = 0;
 unsigned long lastPulseMicros = 0;
 volatile unsigned long pulseInterval = 1000;

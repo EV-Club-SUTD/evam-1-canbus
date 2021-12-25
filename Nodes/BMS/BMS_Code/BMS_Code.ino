@@ -7,7 +7,6 @@ FUNCTIONS
 
 TODO: 
 CODE **SHOULD** WORK, BUT IS PENDING TESTING
-- decide on resistor values for 5v and 12v sense pins
 
 Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
 
@@ -54,8 +53,9 @@ EwmaT <uint32_t> filter5v(3, 100);
 EwmaT <uint32_t> filter12v(3, 100);
 
 /***CAN BUS MESSAGE FUNCTIONS***/
+
 //to update CANBus on the status of the node
-void sendStatus(uint8_t status = 0){
+void sendStatus(uint8_t status = errorState){
   errorState = status;
   #ifdef DEBUG
   Serial.print("Node status: ");
@@ -163,6 +163,14 @@ void loop() {
       batteryMsg.data[7] = canMsg.data[0];  //highest cell temperature
       lastRcv2Millis = millis();
     }   
+  }
+  if (evamMcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
+    if(canMsg.can_id == 7){ //Node Status Request Message ID
+      sendStatus();
+      //#ifdef DEBUG
+      //Serial.println("Node Status Requested");
+      //#endif  //DEBUG
+    }
   }
 
   //sample the voltage rails
