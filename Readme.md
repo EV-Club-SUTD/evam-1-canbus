@@ -8,12 +8,14 @@ Contains the arduino code for the different nodes in the canbus
 
 `Nodes\` contains the arduino sketches for the nodes:
  - BMS (Battery Management System) (*tested, working*)
- - ECU (Engine Control Unit) (*haven't begun*)
- - Wheel Nodes (*in progress*)
- - SAS (Steering Angle Sensor) (*early stages*)
- - TPS (Throttle (and Brake) Position Sensor) (*in progress*)
- - Front and Rear Lights (*In progress*)
- - IMU (Inertial Measurement Unit) (*haven't begun, low priority*)
+ - ECU (Engine Control Unit) (*done, but not fully tested*)
+-- not tested with all 4 motors connected
+ - Wheel Nodes (*roughly done*)
+-- Dual motor controller has been tested with 2 motor controllers, but single hasn't been developed. Should just be a case of copying the code over, changing the pins assigned, and disabling the second motor controller functionality.
+ - SAS (Steering Angle Sensor) (*done*)
+ - TPS (Throttle (and Brake) Position Sensor) (*done, but brakes untested*)
+ - Front and Rear Lights (*rear light done, front to be done*)
+ -  ~~IMU (Inertial Measurement Unit) (*will probably not be implemented*)~~
  
  
  > Refer to `Notes\CAN Bus Messages.xlsx` for more information about each node.
