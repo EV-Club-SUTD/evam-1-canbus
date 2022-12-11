@@ -111,7 +111,7 @@ void readFilterThrottle(){
   //??
   #endif  //DUAL_TPS
 
-  canAccMsg.data[0] = filteredThrottle>>6;  //rightshitf 14 bit back to 8 bit number to send on canbus
+  canAccMsg.data[0] = filteredThrottle>>6;  //rightshift 14 bit back to 8 bit number to send on canbus
 }
 
 void readFilterBrake(){

@@ -23,6 +23,7 @@ Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
 #include <mcp2515.h>
 #include <Wire.h>
 #include <AS5600.h> //Seeed Library for AS5600:https://github.com/Seeed-Studio/Seeed_Arduino_AS5600
+#include "can_ids.h"
 #define DEBUG
 
 //timing stuff
@@ -228,21 +229,21 @@ void setup() {
                                 (EEPROM.read(CENTRE_CAL_EEPROM_ADDRESS+1) << 8);
 
   //status message
-  canStatusMsg.can_id  = 0x0B;
+  canStatusMsg.can_id  = SAS_STATUS_MSG_ID;
   canStatusMsg.can_dlc = 3;
   canStatusMsg.data[0] = errorState;
   canStatusMsg.data[1] = centreAngle & 0xFF;  //center low byte
   canStatusMsg.data[2] = centreAngle >> 8;  //centre high byte
 
   //steering angle message
-  steeringMsg.can_id  = 0x2C;
+  steeringMsg.can_id  = STEERING_MSG_ID;
   steeringMsg.can_dlc = 3;
   steeringMsg.data[0] = 0x00;
   steeringMsg.data[1] = 0x00;
   steeringMsg.data[1] = 0x00;
 
   //calibration message
-  calibMsg.can_id  = 0x50;
+  calibMsg.can_id  = CALIBRATE_STEERING_MSG_ID;
   calibMsg.can_dlc = 4;
   calibMsg.data[0] = 0x00;  //requested calibration
   calibMsg.data[1] = 0x00;  //calibration type carried out

@@ -20,7 +20,7 @@
 #define THROTTLE_BRAKE_MSG_ID       32
 #define REV_BOOST_MSG_ID            34
 #define BATT_STATS_MSG_ID           36
-#define VOLTAGE VALUES_MSG_ID       37
+#define VOLTAGE_VALUES_MSG_ID       37
 
 #define STEERING_MSG_ID             44
 #define INDIV_WHEEL_THROTTLES_MSG_ID    48
@@ -33,9 +33,18 @@
 #define L_R_DIFF_MSG_ID             60
 #define F_R_DIFF_MSG_ID             61
 
-//TODO: Add in IMU messages?
+#define IMU_OVERVIEW_MSG_ID         64
+#define IMU_LINEAR_MSG_ID           65
+#define IMU_ANGULAR_MSG_ID          66
+#define IMU_MAGNETIC_MSG_ID         67
 
-#define CALLIBRATE_STEERING_MSG_ID  80
+#define SUSP_FL_MSG_ID              72
+#define SUSP_FR_MSG_ID              73
+#define SUSP_RL_MSG_ID              74
+#define SUSP_RR_MSG_ID              75
+
+#define CALIBRATE_STEERING_MSG_ID  80
+#define CALIBRATE_THROTTLE_MSG_ID   81
 
 #define FRONT_LIGHT_MSG_ID          96
 #define REAR_LIGHT_MSG_ID           97

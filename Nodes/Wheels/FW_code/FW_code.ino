@@ -13,6 +13,10 @@ Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
 
 !!THIS CODE HAS NO MILLIS() OVERFLOW PROTECTION!!
 
+TODO:
+- UNcomment lockout functionality once system is stable
+- Enable boost/eco mode control(?)
+
 Code is still under development
     Speed reading is still sometimes a bit off...
 
@@ -22,6 +26,7 @@ Code is still under development
 #include <mcp2515.h>  //arduino-mcp2515 by autowp: https://github.com/autowp/arduino-mcp2515/
 #include "FW_config.h"
 #include "pulse_calculations.h"
+#include "can_ids.h"
 
 
 //timing
@@ -67,7 +72,7 @@ void sendStatus(nodeErrorType status = errorState){
 
 void readIncomingMessages(){
     if (mcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
-        if(canMsg.can_id == 0x30){ //Individual Wheel Throttles
+        if(canMsg.can_id == INDIV_WHEEL_THROTTLES_MSG_ID){ //Individual Wheel Throttles
             flThrottle = canMsg.data[0];
             frThrottle = canMsg.data[1];
             if(canMsg.data[4] == 1){ //just to ensure reverse doesn't go haywire
@@ -86,28 +91,27 @@ void readIncomingMessages(){
             Serial.println("Throttle: Left: " + String(flThrottle) + " | Right: " + String(frThrottle));
             #endif  //DEBUG
         }
-        if(canMsg.can_id == 0x22){ //Boost/Eco/Reverse
+        if(canMsg.can_id == REV_BOOST_MSG_ID){ //Boost/Eco/Reverse
             //ignore canMsg.data[0]; that is the global 'reverse' we read the 'reverse' from the individuial wheel throttle message
             ecoBoost = canMsg.data[1]; 
             #ifdef DEBUG=
             Serial.println("Boost: " + String(ecoBoost));
             #endif  //DEBUG
         }
-        if(canMsg.can_id == 0x05){ //Motors Locked out
-            //ignore canMsg.data[0]; that is the global 'reverse'. We read the 'reverse' from the individuial wheel throttle message
+        if(canMsg.can_id == MOTOR_LOCKOUT_MSG_ID){ //Motors Locked out
             motorsLocked = canMsg.data[0]; 
             #ifdef DEBUG
             Serial.println("Motors: " + (motorsLocked == true) ? "locked" : "unlocked");
             #endif  //DEBUG
         }
-        if(canMsg.can_id == 7){ //Node Status Request Message ID
+        if(canMsg.can_id == NODE_STATUS_REQUEST_MSG_ID){ //Node Status Request Message ID
             sendStatus();
             //#ifdef DEBUG
             //Serial.println("Node Status Requested");
             //#endif  //DEBUG
         }
     }
-}   //readIncomingMessages()
+}   //readIncomingMessages
 
 //send wheel speed messages
 void sendCanMessage(){
@@ -174,19 +178,19 @@ void controlESCs(){
 
 void setup() {
     //status message
-    canStatusMsg.can_id  = 0x0D;
+    canStatusMsg.can_id  = FW_STATUS_MSG_ID;
     canStatusMsg.can_dlc = 1;
     canStatusMsg.data[0] = errorState;
 
     //flWheel Message
-    flWheelSpeedMsg.can_id  = 0x34;
+    flWheelSpeedMsg.can_id  = FL_SPEED_MSG_ID;
     flWheelSpeedMsg.can_dlc = 2;
     flWheelSpeedMsg.data[0] = 0x00;
     flWheelSpeedMsg.data[1] = 0x00;
     //flWheelSpeedMsg.data[2] = 0x00;
 
     //frWheel Message
-    frWheelSpeedMsg.can_id  = 0x35;
+    frWheelSpeedMsg.can_id  = FR_SPEED_MSG_ID;
     frWheelSpeedMsg.can_dlc = 2;
     frWheelSpeedMsg.data[0] = 0x00;
     frWheelSpeedMsg.data[1] = 0x00;

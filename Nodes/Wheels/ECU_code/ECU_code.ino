@@ -12,6 +12,10 @@ FUNCTIONS:
 
 Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
 
+TODO:
+- Enable e-stop functionality once e-Stop is connected
+- Enable software differential (i.e. torque vectoring) once the system is stable 
+
 
 !This code is not millis() overflow protected!
 
@@ -37,9 +41,9 @@ unsigned long lastPrintMillis = 0;
 
 //Errors & e-Stops
 nodeErrorType errorState = OFFLINE;     //generic node status
-ecuErrorType statusPart2 = NO_ERROR;        //additional information
+ecuErrorType statusPart2 = NO_ERROR;    //additional information
 uint8_t overCurrent = 0;                //not implemented yet
-bool eStopPressed = 0;                         //whether e-Stop has been pressed. TODO: Change to initialise to 1 when the system is set up
+bool eStopPressed = 0;                  //whether e-Stop has been pressed. TODO: Change to initialise to 1 when the system is set up
 bool motorLock = 0;                     //whether motor has been locked out through HUD. TODO: Change to initialise to 1 when the system is set up
 
 /* Other node statuses
@@ -87,6 +91,7 @@ void sendEStopMsg(){
     #ifdef DEBUG
     Serial.print("e-Stop ");
     Serial.println(eStopPressed ? "pressed" : "released");
+    Serial.println("WARNING: Software e-Stop functionality is disabled!"); //TODO: remove once e-Stop reading is enabled
     #endif //DEBUG
     eStopMsg.data[0] = eStopPressed;
     mcp2515.sendMessage(&eStopMsg);
@@ -366,10 +371,11 @@ void calculateWheelThrottles(){
     for(uint8_t i = 4; i<8;i++){    //set all 4 reverse values to be the same
             indivWheelThrottlesMsg.data[i] = throttleRev;  
         }
-    lrDifferential();
-    frDifferential();
-    checkWheelSpinLockup();
-    absTractionControl();
+    // ebable and test these when system is stable
+    //lrDifferential();
+    //frDifferential();
+    //checkWheelSpinLockup();
+    //absTractionControl();
 }
 
 void checkOverCurrent(){    //checks if battery current is too high for prolonged time

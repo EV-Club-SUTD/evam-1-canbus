@@ -32,7 +32,7 @@ enum nodeErrorType {
 
 enum ecuErrorType {
 
-    NO_ERROR                    = 0,
+    NO_ERROR                = 0,
     THROTTLE_TIMED_OUT      = 3,
     STEERING_TIMED_OUT      = 4,
     WHEEL_SPEED_TIMED_OUT   = 5
