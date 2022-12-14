@@ -14,8 +14,6 @@ FUNCTIONS:
 
 
 Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
-Connect A0 to the throttle 
-Connect A1 to the brake
 
 !This code is not millis() overflow protected!
 
@@ -49,9 +47,8 @@ void printAccMessage(){
 //reads the raw value from the throttle and converts it to parcentage for the CAN bus
 void readFilterThrottle(){
   uint16_t throttleRaw = analogRead(ACC_PIN);                                           //reads 10bit ADC value
-  //Serial.println(throttleRaw);
   throttleRaw = (checkForErroneousValues(throttleRaw, TPS1_MIN_VAL, TPS1_MAX_VAL))<<4;  //check for problematic values, then leftshift to 14 bit
-  
+  //Serial.println(throttleRaw);
   #ifdef DUAL_TPS
     uint16_t throttleRaw2 = analogRead(ACC_PIN2);                                         //reads 10bit ADC value
     //Serial.println(String(throttleRaw) + " | " + String(throttleRaw2));
@@ -110,7 +107,7 @@ void readFilterThrottle(){
   #else //not DUAL_TPS
   //??
   #endif  //DUAL_TPS
-
+  //Serial.println(filteredThrottle);
   canAccMsg.data[0] = filteredThrottle>>6;  //rightshift 14 bit back to 8 bit number to send on canbus
 }
 
@@ -132,7 +129,12 @@ void readFilterBrake(){
 }
 
 uint16_t checkForErroneousValues(uint16_t _rawVal, uint16_t minVal, uint16_t maxVal){
-  if(_rawVal < (minVal-50)){  //value too low, probably disconnected sensor!
+  //to catch overflow (0-50)
+  uint16_t minVal2 = 50;
+  if(minVal > 50){
+    minVal2 = minVal;
+  }
+  if(_rawVal < (minVal2-50)){  //value too low, probably disconnected sensor!
     #ifdef DEBUG
     Serial.print("Sensor Value too low! Is it disconnected?");
     #endif
