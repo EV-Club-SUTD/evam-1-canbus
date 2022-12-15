@@ -1,5 +1,5 @@
 /*
-RW (Rear Wheel) CODE FOR EVAM
+RLW (Rear Left Wheel) CODE FOR EVAM
 
 by Nigel Gomes
 
@@ -24,7 +24,7 @@ Code is still under development
 #include <Arduino.h>
 #include <SPI.h>
 #include <mcp2515.h>  //arduino-mcp2515 by autowp: https://github.com/autowp/arduino-mcp2515/
-#include "FW_config.h"
+#include "RW_config.h"
 #include "pulse_calculations.h"
 #include "can_ids.h"
 
@@ -42,7 +42,7 @@ struct can_frame wheelSpeedMsg; //front left wheel speed message
 struct can_frame canMsg; //generic CAN message for recieving data
 MCP2515 mcp2515(10);
 
-//wheel speeds and throttles
+//wheel speed and throttle
 motorHall motor;
 
 bool wheelDir = 0;    //forward = 0, reverse = 1
@@ -76,13 +76,13 @@ void readIncomingMessages(){
             lastRcvMillis = millis();
             #ifdef DEBUG
             //Serial.println("Throttle Data Received");
-            Serial.println("Throttle: Left: " + String(flThrottle) + " | Right: " + String(frThrottle));
+            Serial.println("Throttle: " + String(throttle));
             #endif  //DEBUG
         }
         if(canMsg.can_id == REV_BOOST_MSG_ID){ //Boost/Eco/Reverse
             //ignore canMsg.data[0]; that is the global 'reverse'. We read the 'reverse' from the individuial wheel throttle message
             ecoBoost = canMsg.data[1]; 
-            #ifdef DEBUG=
+            #ifdef DEBUG
             Serial.println("Boost: " + String(ecoBoost));
             #endif  //DEBUG
         }
@@ -109,7 +109,7 @@ void sendCanMessage(){
     //heelSpeedMsg.data[2] = flWheelDir;    
     mcp2515.sendMessage(&wheelSpeedMsg);
     
-    #ifdef DEBUG  //print brake and throttle values
+    #ifdef DEBUG  //print speed
     if(millis() - lastPrintMillis > PRINT_INTERVAL){
         Serial.print("Wheel Speed = ");
         Serial.print(wheelSpeed/30);
@@ -142,15 +142,12 @@ void setPinLowFLoat(uint8_t pin, bool state){
 
 void controlESCs(){
     /* TODO: Enable later
-    if(motorsLocked || (errorState != 1)){  //set throttles to 0
-        flThrottle = 0;
-        frThrottle = 0;
+    if(motorsLocked || (errorState != 1)){  //set throttle to 0
+        throttle = 0;
     }
     */
-    analogWrite(LEFT_THROTTLE_PIN, flThrottle);
-    analogWrite(RIGHT_THROTTLE_PIN, frThrottle);
-    setPinLowFLoat(LEFT_REVERSE_PIN, flThrottleRev);
-    setPinLowFLoat(RIGHT_REVERSE_PIN, frThrottleRev);
+    analogWrite(THROTTLE_PIN, throttle);
+    setPinLowFLoat(REVERSE_PIN, throttleRev);
 }
 
 void setup() {
@@ -163,7 +160,7 @@ void setup() {
     wheelSpeedMsg.can_id  = RL_SPEED_MSG_ID;
     wheelSpeedMsg.can_dlc = 2;
     wheelSpeedMsg.data[0] = 0x00;
-    WheelSpeedMsg.data[1] = 0x00;
+    wheelSpeedMsg.data[1] = 0x00;
 
 
     //Pins Setup
