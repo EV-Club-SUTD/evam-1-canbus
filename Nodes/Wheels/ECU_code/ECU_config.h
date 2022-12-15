@@ -18,7 +18,7 @@
 #define WHEEL_THROTTLES_MSG_INTERVAL 10 //interval in ms for the individual wheel throttles message
 #define ERROR_MSG_INTERVAL 100 //interval in ms between error messages (to avoid clogging up canbus)
 #define ESTOP_MSG_INTERVAL 1000 //interval in ms between e-stop messages
-#define PRINT_INTERVAL 100      //interval in ms between speed and accelerator messages printed to serial port
+#define PRINT_INTERVAL 2000      //interval in ms between speed and accelerator messages printed to serial port
 
 
 //ERRORS

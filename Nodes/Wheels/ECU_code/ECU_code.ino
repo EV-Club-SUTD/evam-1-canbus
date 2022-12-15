@@ -88,11 +88,6 @@ uint8_t wheelLockup = 0b0000;   //Set 1 for the respective bit if a wheel is loc
 
 //Updates CANBus on the status of the e-Stop
 void sendEStopMsg(){
-    #ifdef DEBUG
-    Serial.print("e-Stop ");
-    Serial.println(eStopPressed ? "pressed" : "released");
-    Serial.println("WARNING: Software e-Stop functionality is disabled!"); //TODO: remove once e-Stop reading is enabled
-    #endif //DEBUG
     eStopMsg.data[0] = eStopPressed;
     mcp2515.sendMessage(&eStopMsg);
     lastEStopMsgMillis = millis();
@@ -106,11 +101,21 @@ void checkEStop(){
     if((digitalRead(E_STOP_SENSE_PIN) == LOW) && (eStopPressed == 0)){
         eStopPressed = 1;  //pressed
         sendEStopMsg();
+        #ifdef DEBUG
+        Serial.print("e-Stop ");
+        Serial.println(eStopPressed ? "pressed" : "released");
+        Serial.println("WARNING: Software e-Stop functionality is disabled!"); //TODO: remove once e-Stop reading is enabled
+        #endif //DEBUG
     }
     //update that estop is released
     else if((digitalRead(E_STOP_SENSE_PIN) == HIGH) && (eStopPressed == 1)){
         eStopPressed = 0;  //released
         sendEStopMsg();
+        #ifdef DEBUG
+        Serial.print("e-Stop ");
+        Serial.println(eStopPressed ? "pressed" : "released");
+        Serial.println("WARNING: Software e-Stop functionality is disabled!"); //TODO: remove once e-Stop reading is enabled
+        #endif //DEBUG
     }
 }
 
@@ -177,15 +182,15 @@ void readIncomingMessages(){
         else if(canMsg.can_id == REV_BOOST_MSG_ID){ //Reverse Selected
             throttleRev = canMsg.data[0];
             //#ifdef DEBUG
-            //Serial.println("Reverse: " + String(throttleRev));
+            Serial.println("Reverse: " + String(throttleRev));
             //#endif  //DEBUG
         }
         else if(canMsg.can_id == BATT_STATS_MSG_ID){ //Battery Stats
             battCurrent = canMsg.data[2] + (canMsg.data[3]<<8);
             battTemp = canMsg.data[2];
-            // #ifdef DEBUG
-            // //Serial.println("Batt Current: " + String(battCurrent) + "Batt Temp: " + String(battTemp));
-            // #endif  //DEBUG
+            //#ifdef DEBUG
+            //Serial.println("Batt Current: " + String(battCurrent) + "Batt Temp: " + String(battTemp));
+            //#endif  //DEBUG
         }
         else if(canMsg.can_id == STEERING_MSG_ID){ //Steering Wheel Angle
             steeringAngle = canMsg.data[0];
@@ -194,7 +199,7 @@ void readIncomingMessages(){
                 sendStatus(errorState, NO_ERROR);
             }
             // #ifdef DEBUG
-            // //Serial.println("Steering Angle: " + String(steeringAngle));
+            //Serial.println("Steering Angle: " + String(steeringAngle));
             // #endif  //DEBUG
         }
 
@@ -415,6 +420,8 @@ void printThrottles(){
     Serial.print(indivWheelThrottlesMsg.data[2]);
     Serial.print(" | ");
     Serial.println(indivWheelThrottlesMsg.data[3]);
+    Serial.print("Reverse: ");
+    Serial.println(indivWheelThrottlesMsg.data[4]);
 }
 
 //print speed value
@@ -560,5 +567,6 @@ void loop(){
     if(millis() - lastPrintMillis > PRINT_INTERVAL){
         printThrottles();
         printSpeed();
+        lastPrintMillis = millis();
     }
 }
