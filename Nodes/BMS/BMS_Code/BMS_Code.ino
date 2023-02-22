@@ -80,10 +80,10 @@ void sendBattMessage(){
 void sendVoltageMessage(){
   evamMcp2515.sendMessage(&voltageMsg);
   #ifdef DEBUG
-  uint8_t v5 = voltageMsg.data[0]/20;
-  uint8_t v5dec = (voltageMsg.data[0]%20)*5;
+  uint8_t v5 = voltageMsg.data[0]/36;
+  uint8_t v5dec = (voltageMsg.data[0]%36)*5;
   uint8_t v12 = voltageMsg.data[2]/10;
-  uint8_t v12dec = (voltageMsg.data[0]%20)*5;
+  uint8_t v12dec = (voltageMsg.data[0]%10)*5;
   //NO USING FLOATS!!
   Serial.println("5V = " + String(v5) + ((v5dec<10) ? (".0") : (".")) + String(v5dec) + " | " + "12V = " + String(v12) + ((v12dec<10) ? (".0") : (".")) + String(v12dec));
   #endif  //DEBUG
@@ -92,6 +92,7 @@ void sendVoltageMessage(){
 /***OTHERS***/
 void readFilterVoltages(){
   //analogRead values promoted to 14 bit since it's filtered xd
+
   uint16_t raw5v = analogRead(SENSE_5V)<<4;  //reads 10bit ADC value, converts to 14bit. might need to multiply by a scaling factor
   uint16_t raw12v = analogRead(SENSE_12V)<<4;
   uint32_t filtered5v = filter5v.filter(raw5v); //is actually a 16 bit number
@@ -131,7 +132,7 @@ void setup() {
   batteryMsg.data[7] = 0x00;
 
   //Voltage Rail values message
-  voltageMsg.can_id  = 0x09;
+  voltageMsg.can_id  = 37;
   voltageMsg.can_dlc = 2;
   voltageMsg.data[0] = 0;
   voltageMsg.data[0] = 0;
