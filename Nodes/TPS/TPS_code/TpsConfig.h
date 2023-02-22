@@ -35,7 +35,7 @@
 
 //TPS Callibration
 #define TPS1_MIN_VAL 0    //dual TPS: 128-129
-#define TPS1_MAX_VAL 914    //dual TPS: 927
+#define TPS1_MAX_VAL 1006    //dual TPS: 927
 
 #ifdef DUAL_TPS
 #define TPS2_MIN_VAL 550    //is actually 550

@@ -113,7 +113,7 @@ void readFilterThrottle(){
 
 void readFilterBrake(){
   //uint16_t brakeRaw = analogRead(BRAKE_PIN)<<4;  //reads 10bit ADC value, converts to 14bit //TODO: enable this and disable the next line when the brake sensor is fitted in
-  uint16_t brakeRaw = 0;  //from sensor
+  uint16_t brakeRaw = 0;  //dummy data since there's no sensor connected
 
   /* FILTERING */
   #ifdef FILTER_BRAKE
@@ -124,8 +124,8 @@ void readFilterBrake(){
   
   uint8_t brakePercent = calcBrakePercent(filteredBrake>>6);
   canAccMsg.data[2] = (filteredBrake>>6)*2;  //convert back to 8 bit number to send on canbus
-  //canAccMsg.data[4] = brakePercent;
-  canAccMsg.data[4] = canAccMsg.data[0];  //set brake percent same as throttle percent for testing
+  canAccMsg.data[4] = brakePercent;
+  //canAccMsg.data[4] = canAccMsg.data[0];  //set brake percent same as throttle percent for testing
 }
 
 uint16_t checkForErroneousValues(uint16_t _rawVal, uint16_t minVal, uint16_t maxVal){
