@@ -201,7 +201,7 @@ void setupCan(){
 void readIncomingMessages(){
   if (mcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
     if(canMsg.can_id == NODE_STATUS_REQUEST_MSG_ID){ //Node Status Request Message ID
-      sendStatus();
+      sendStatus(errorState);
       //#ifdef DEBUG
       //Serial.println("Node Status Requested");
       //#endif  //DEBUG
@@ -213,7 +213,7 @@ void setup() {
   #ifdef DEBUG  //debug mode
   Serial.begin(115200);
   Serial.println("TPS Node");
-  Serial.println("WARNING: Brake VALUE SET TO ACCELERATOR VALUE FOR TESTING");
+  //Serial.println("WARNING: Brake VALUE SET TO ACCELERATOR VALUE FOR TESTING");
   #ifndef ARDUINO_AVR_NANO
   Serial.println("WARNING: This sketch was designed for an arduino Nano");
   #endif //#ifndef ARDUINO_AVR_NANO
