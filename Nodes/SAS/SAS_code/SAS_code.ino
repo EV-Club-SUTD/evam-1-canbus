@@ -255,29 +255,23 @@ void setup() {
   mcp2515.setNormalMode();
 
   //check that magnet is detected
-  if(ams5600.detectMagnet() == 0 ){
-    unsigned long startMillis = millis();
-    while(errorState == 255){
-        if(ams5600.detectMagnet() == 1 ){
-          #ifdef DEBUG
-          Serial.print("Current Magnitude: ");
-          Serial.println(ams5600.getMagnitude());
-          #endif //DEBUG
-          sendStatus(1);
-        }
-        else{
-          #ifdef DEBUG
-          Serial.println("Can not detect magnet");
-          #endif
-          if (millis() - startMillis > 3000){
-            sendStatus(0);
-          }
-        }
-        delay(300);
+  unsigned long startMillis = millis();
+  while(errorState != 1){
+    if(ams5600.detectMagnet() == 1 ){
+      #ifdef DEBUG
+      Serial.print("Magnet detected. Current Magnitude: ");
+      Serial.println(ams5600.getMagnitude());
+      #endif //DEBUG
+      sendStatus(1);
     }
+    if (millis() - startMillis > 3000){ // timeout
+      sendStatus(0);          
+      #ifdef DEBUG
+      Serial.println("Can not detect magnet");
+      #endif
+    }
+    delay(300);
   }
-   
-
 }
 
 
