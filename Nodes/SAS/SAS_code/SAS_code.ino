@@ -35,7 +35,7 @@ uint8_t errorState = 255;  //state of the node. 0: error, 1: ok, 255: offline
 AMS_5600 ams5600; //instantiate 
 uint16_t steeringAngle;  //for CAN message. Split into 2 bytes
 uint8_t calibSteeringAngle;
-uint16_t centreAngle = 2047;
+uint16_t centreAngle = 2200;
 #define CENTRE_ANGLE_DEVIATION_MAX 500  //maximum amount the (raw) centre angle is allowed to deviate from the ideal (2047), before the calibration function assumes something is wrong 
 #define CENTRE_CAL_EEPROM_ADDRESS 0
 
@@ -68,15 +68,29 @@ void readSteering(){
   steeringAngle = ams5600.getScaledAngle();  //from sensor
 }
 
-//calculates the uint8_t version of the steering angle for byte0 of the CAN Bus message
+
+// calculates the uint8_t version of the steering angle for byte0 of the CAN Bus message
+// steering angle is about 130 degrees a side
 void calculateCalibratedSteering(){
-  int16_t calibSteeringAngle_16t = (steeringAngle - (centreAngle - 2047))>>4;
-  if(calibSteeringAngle_16t < 0){
-    calibSteeringAngle_16t = 0;
-  } else if (calibSteeringAngle_16t > 255){
-    calibSteeringAngle_16t = 255;
+  // conversion is 260 deg / 4096 bits = 0.0879
+
+  // intermediate variable to convert angle to degrees
+  int32_t angleTemp_32t = (int32_t(steeringAngle) - int32_t(centreAngle)) * 90; 
+  // Serial.print("Intermediate Angle1  = ");
+  // Serial.print(angleTemp_32t);
+  angleTemp_32t = angleTemp_32t/1024;
+  // #ifdef DEBUG  //print steering value
+  // Serial.print(" | Intermediate Angle = ");
+  // Serial.println(angleTemp_32t);
+  // #endif  //DEBUG
+  angleTemp_32t = angleTemp_32t + 127; // set 127 degrees as the centre
+  //int16_t calibSteeringAngle_16t = (steeringAngle - (centreAngle - 2047))>>4;
+  if(angleTemp_32t < 0){
+    angleTemp_32t = 0;
+  } else if (angleTemp_32t > 255){
+    angleTemp_32t = 255;
   }
-  calibSteeringAngle = uint8_t(calibSteeringAngle_16t);
+  calibSteeringAngle = uint8_t(angleTemp_32t);
 }
 
 //calibrates steering (either left, right or centre position)
@@ -221,9 +235,13 @@ void setup() {
   //ams5600.setStartPosition(450);
   //ams5600.setEndPosition(3160);
 
-  //check if EEPROM has a centre calibration stored
-  centreAngle = (EEPROM.read(CENTRE_CAL_EEPROM_ADDRESS)) | 
-                                (EEPROM.read(CENTRE_CAL_EEPROM_ADDRESS+1) << 8);
+  //check if EEPROM has a centre calibration stored: DISABLED
+  //centreAngle = (EEPROM.read(CENTRE_CAL_EEPROM_ADDRESS)) | (EEPROM.read(CENTRE_CAL_EEPROM_ADDRESS+1) << 8);
+
+  #ifdef DEBUG  //debug mode
+  Serial.print("Centre angle: ");
+  Serial.println(centreAngle);
+  #endif //#ifdef DEBUG
 
   //status message
   canStatusMsg.can_id  = SAS_STATUS_MSG_ID;
