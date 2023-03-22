@@ -9,9 +9,6 @@ FUNCTIONS
   - min/max angle
   - center position
 
-TODO: 
-- test with CAN Bus
-
 Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
 
 !This code is not millis() overflow protected!
@@ -53,7 +50,7 @@ struct can_frame steeringMsg;  //main CAN message
 
 
 void sendCanMessage(){
-  steeringMsg.data[1] = calibSteeringAngle; //calibrated steering angle
+  steeringMsg.data[0] = calibSteeringAngle; //calibrated steering angle
   steeringMsg.data[1] = steeringAngle & 0xFF; //LSB
   steeringMsg.data[2] = steeringAngle >> 8; //MSB
   mcp2515.sendMessage(&steeringMsg);
