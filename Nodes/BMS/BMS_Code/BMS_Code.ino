@@ -17,7 +17,7 @@ Designed to run on an Arduino Nano (ARDUINO_AVR_NANO)
 #include <SPI.h>
 #include <mcp2515.h>
 #include <EwmaT.h>
-#define DEBUG
+// #define DEBUG
 
 //can bus
 struct can_frame canMsg;        //generic CAN message for recieving data
@@ -37,6 +37,8 @@ uint16_t SOC, Th;
 #define BMS_CAN_TIMEOUT 1000  //timeout in ms before raising an error, if no message is received on the battery canbus
 #define BATT_MSG_INTERVAL 100  //timing delay in ms between battery messages sent by node
 #define VOLTAGE_MSG_INTERVAL 500  //timing delay in ms between rail voltage messages sent by node
+
+#define NODE_STATUS_REQUEST_MSG_ID  7
 
 unsigned long lastRcv1Millis = 0;
 unsigned long lastRcv2Millis = 0;
@@ -163,11 +165,13 @@ void loop() {
     if(canMsg.can_id == 2566002163){ //BMS4
       batteryMsg.data[7] = canMsg.data[0];  //highest cell temperature
       lastRcv2Millis = millis();
-    }   
+    }
   }
+
   if (evamMcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
-    if(canMsg.can_id == 7){ //Node Status Request Message ID
+    if(canMsg.can_id == NODE_STATUS_REQUEST_MSG_ID){ //Node Status Request Message ID
       sendStatus();
+      Serial.println(errorState);
       //#ifdef DEBUG
       //Serial.println("Node Status Requested");
       //#endif  //DEBUG

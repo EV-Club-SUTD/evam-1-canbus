@@ -1,8 +1,6 @@
 #ifndef _RW_CONFIG_H_
 #define _RW_CONFIG_H_
 
-#define DEBUG   //debug mode prints imformation to terminal
-
 //Connections to ESC
 //Updated based on PCB
 //Numbers are based on underlying integer pin numbers

@@ -28,12 +28,12 @@ NOTE:
 
 */
 
-
-
 #include "Arduino.h"
 #include "TpsConfig.h"
 
-#ifdef DEBUG  
+// #define DEBUG
+
+#ifdef DEBUG
 void printAccMessage(){
   Serial.print("Throttle = ");
   Serial.print(canAccMsg.data[0]);
@@ -98,7 +98,7 @@ void readFilterThrottle(){
       filteredThrottle = 0; //set throttle to 0 for safety
     }
     else{ //no throttle mismatch
-      if(errorState = 0){  //Recovered from throttle mismatch
+      if(errorState == 0){  //Recovered from throttle mismatch
         sendStatus(1);
       }
       //do any further post processing with the valid throttle data
@@ -138,14 +138,14 @@ uint16_t checkForErroneousValues(uint16_t _rawVal, uint16_t minVal, uint16_t max
     #ifdef DEBUG
     Serial.print("Sensor Value too low! Is it disconnected?");
     #endif
-    if(errorState = 1){  //send CAN error message
+    if(errorState == 1){  //send CAN error message
       sendStatus(0);
     }
   }else if(_rawVal > (maxVal+50)){ //Value too high, idk what could cause this
     #ifdef DEBUG
     Serial.print("Sensor Value too high!");
     #endif
-    if(errorState = 1){  //send CAN error message
+    if(errorState == 1){  //send CAN error message
       sendStatus(0);
     }
     _rawVal = 0;  //set to 0 for safety
@@ -202,9 +202,9 @@ void readIncomingMessages(){
   if (mcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
     if(canMsg.can_id == NODE_STATUS_REQUEST_MSG_ID){ //Node Status Request Message ID
       sendStatus(errorState);
-      //#ifdef DEBUG
-      //Serial.println("Node Status Requested");
-      //#endif  //DEBUG
+      #ifdef DEBUG
+      Serial.println("Node Status Requested");
+      #endif  //DEBUG
     }
   }
 }
@@ -219,7 +219,7 @@ void setup() {
   #endif //#ifndef ARDUINO_AVR_NANO
   #endif //#ifdef DEBUG
   setupCan();
-  sendStatus(1);  
+  sendStatus(1);
 }
 
 void loop() {

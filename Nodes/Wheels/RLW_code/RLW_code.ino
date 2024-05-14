@@ -28,6 +28,7 @@ Code is still under development
 #include "pulse_calculations.h"
 #include "can_ids.h"
 
+// #define DEBUG
 
 //timing
 
@@ -106,7 +107,7 @@ void sendCanMessage(){
   
     wheelSpeedMsg.data[0] = wheelSpeed & 0x00FF;  
     wheelSpeedMsg.data[1] = wheelSpeed >> 8;    
-    //heelSpeedMsg.data[2] = flWheelDir;    
+    //heelSpeedMsg.data[2] = flWheelDir;
     mcp2515.sendMessage(&wheelSpeedMsg);
     
     #ifdef DEBUG  //print speed

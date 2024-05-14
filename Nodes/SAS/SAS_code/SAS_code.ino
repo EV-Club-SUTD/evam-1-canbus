@@ -269,6 +269,10 @@ void setup() {
   mcp2515.setBitrate(CAN_500KBPS, MCP_8MHZ);
   mcp2515.setNormalMode();
 
+  #ifdef DEBUG  //debug mode
+  Serial.print("Checking if magnet sensor ok...");
+  #endif //#ifdef DEBUG
+
   //check that magnet is detected
   unsigned long startMillis = millis();
   while(errorState != 1){
@@ -280,13 +284,20 @@ void setup() {
       sendStatus(1);
     }
     if (millis() - startMillis > 3000){ // timeout
-      sendStatus(0);          
+      sendStatus(0);
       #ifdef DEBUG
       Serial.println("Can not detect magnet");
       #endif
     }
+    #ifdef DEBUG
+    Serial.println("Error state is not 1, this node will not boot up!");
+    #endif
     delay(300);
   }
+  #ifdef DEBUG
+  Serial.print("Error State: ");
+  Serial.println(errorState);
+  #endif
 }
 
 
